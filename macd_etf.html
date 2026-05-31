@@ -1,0 +1,2012 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>MACD x 布林通道 雙模式戰略分析器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif; background-color: #f0f4f8; }
+        .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .scanning-pulse { animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Modal */
+        #detailModal { transition: opacity 0.2s ease; }
+        #detailModal.modal-open { opacity: 1; pointer-events: auto; }
+        #detailModal.modal-closed { opacity: 0; pointer-events: none; }
+        #modalPanel { transition: transform 0.25s cubic-bezier(0.34,1.2,0.64,1), opacity 0.2s ease; }
+        #detailModal.modal-open #modalPanel { transform: translateY(0) scale(1); opacity: 1; }
+        #detailModal.modal-closed #modalPanel { transform: translateY(24px) scale(0.97); opacity: 0; }
+    </style>
+</head>
+<body class="text-slate-800 pb-12">
+
+    <div class="bg-slate-900 text-white pt-8 pb-16 px-4 md:px-8 shadow-md">
+        <div class="max-w-7xl mx-auto">
+            <h1 class="text-3xl font-bold flex items-center mb-2">
+                <svg class="w-8 h-8 mr-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                全方位投資戰略分析終端
+            </h1>
+            <p class="text-slate-400">結合布林通道與 MACD 動能，支援單檔深度解析與台股 ETF 族群一鍵掃描</p>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto -mt-10 px-4 md:px-8">
+        <div class="flex space-x-2 mb-6 bg-white p-1 rounded-xl shadow inline-flex">
+            <button onclick="switchTab('single')" id="tab-single" class="px-6 py-2.5 rounded-lg text-sm font-bold bg-blue-100 text-blue-700 transition-colors">
+                🔍 單檔深度解析 (自行輸入)
+            </button>
+            <button onclick="switchTab('scanner')" id="tab-scanner" class="px-6 py-2.5 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                📡 一鍵 ETF 掃描雷達
+            </button>
+            <button onclick="switchTab('longterm')" id="tab-longterm" class="px-6 py-2.5 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                🌱 中長期持有篩選器
+            </button>
+        </div>
+
+        <div id="mode-single" class="block">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div class="w-full md:w-auto flex-1">
+                    <label class="block text-sm font-bold text-slate-600 mb-1">輸入股票/ETF代碼 (自動判別上市櫃，支援字母後綴如 00403A)</label>
+                    <div class="flex">
+                        <input type="text" id="tickerInput" placeholder="例如: 3290, 00878, 00403A, TSLA" class="px-4 py-2 border border-slate-300 rounded-l-lg w-full md:w-96 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" onkeypress="if(event.key==='Enter') runSingleAnalysis()">
+                        <button onclick="runSingleAnalysis()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-r-lg font-semibold transition-colors whitespace-nowrap">
+                            分析
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col lg:flex-row gap-6">
+                <div class="w-full lg:w-1/3 bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col min-h-[500px]">
+                    <h2 class="text-lg font-bold text-slate-800 border-b border-slate-200 pb-2 mb-4">💡 智能戰術分析</h2>
+                    
+                    <div id="singleLoading" class="hidden text-blue-600 font-semibold py-10 text-center">
+                        <div class="spinner"></div> 正在抓取與運算...<br>
+                        <span class="text-xs text-slate-500 font-normal mt-2 block" id="singleProxyStatus">建立連線中</span>
+                    </div>
+                    
+                    <div id="singleResult" class="text-slate-800">
+                        <div class="text-center py-16 text-slate-400">
+                            <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            請在上方輸入代碼並點擊分析
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full lg:w-2/3 flex flex-col gap-4">
+                    <div class="border border-slate-200 rounded-xl p-4 bg-white relative h-[320px] shadow-sm">
+                        <canvas id="priceChart"></canvas>
+                    </div>
+                    <div class="border border-slate-200 rounded-xl p-4 bg-white relative h-[220px] shadow-sm">
+                        <canvas id="macdChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="mode-scanner" class="hidden">
+            <!-- 標頭 -->
+            <div class="bg-gradient-to-br from-slate-800 to-indigo-900 rounded-xl shadow-lg p-6 md:p-8 text-white mb-6 flex flex-col md:flex-row items-center justify-between">
+                <div class="mb-6 md:mb-0">
+                    <h2 class="text-2xl font-bold flex items-center">
+                        <span class="bg-blue-500 p-2 rounded-lg mr-3 shadow-inner">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"></path></svg>
+                        </span>
+                        智能 ETF 掃描雷達
+                    </h2>
+                    <p class="text-indigo-200 mt-2 text-sm max-w-xl">
+                        五大類別各 5 檔代表性 ETF（共 25 檔），資料來源：<strong>TWSE 台灣證交所官方 API</strong>。<br>
+                        掃描後按類別顯示技術訊號，每檔均顯示布林 + MACD 綜合判斷。
+                    </p>
+                </div>
+                <button id="scanBtn" onclick="startScan()" class="bg-white text-indigo-900 hover:bg-blue-50 font-bold py-3 px-8 rounded-xl shadow-lg transition flex items-center text-lg whitespace-nowrap">
+                    🚀 開始掃描 (25 檔)
+                </button>
+            </div>
+
+            <!-- 進度條 -->
+            <div id="scanStatusArea" class="hidden bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+                <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                    <span id="scanLog" class="text-blue-600">準備掃描...</span>
+                    <span id="scanPercent">0%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                    <div id="progressBar" class="bg-gradient-to-r from-blue-400 to-indigo-500 h-full rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- 結果：按類別分組 -->
+            <div id="resultsArea" class="hidden space-y-8">
+                <!-- 類別區塊由 JS 動態生成 -->
+            </div>
+        </div>
+
+        <!-- ==================== 中長期持有篩選器 ==================== -->
+        <div id="mode-longterm" class="hidden">
+            <div class="bg-gradient-to-br from-emerald-800 to-teal-900 rounded-xl shadow-lg p-6 md:p-8 text-white mb-6 flex flex-col md:flex-row items-center justify-between">
+                <div class="mb-6 md:mb-0">
+                    <h2 class="text-2xl font-bold flex items-center gap-3">
+                        <span class="bg-emerald-500 p-2 rounded-lg shadow-inner text-xl">🌱</span>
+                        中長期持有篩選器
+                    </h2>
+                    <p class="text-emerald-100 mt-2 text-sm max-w-xl leading-relaxed">
+                        整合 <strong>ETF 20 檔 + 核心個股 30 檔</strong>（共 50 檔），以複合評分演算法找出現在最適合中長期持有的標的。<br>
+                        <span class="text-emerald-300 text-xs mt-1 block">⚠️ 已排除槓桿型 ETF（每日耗損效應，不適合長期持有）</span>
+                    </p>
+                </div>
+                <button id="longtermBtn" onclick="startLongtermScan()" class="bg-white text-emerald-900 hover:bg-emerald-50 font-bold py-3 px-8 rounded-xl shadow-lg transition flex items-center gap-2 text-lg whitespace-nowrap">
+                    🌱 開始篩選 (50 檔)
+                </button>
+            </div>
+
+            <!-- 演算法說明 -->
+            <div class="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
+                <h3 class="font-bold text-slate-700 mb-3">📐 複合評分演算法</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                        <div class="font-bold text-emerald-700 mb-1">① 類別基礎分 × 1.5 倍權重</div>
+                        <div class="text-slate-600 text-xs leading-relaxed">高股息/金融(4.5)・市值型(4.0)・大型權值股(3.5)・電子科技股(2.5)・主動ETF(3.0)　已排除傳產股</div>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <div class="font-bold text-blue-700 mb-1">② 技術面即時加分（最高 9.5 分）</div>
+                        <div class="text-slate-600 text-xs leading-relaxed">MACD多頭+2・RSI健康+2・股價站20MA+2・MACD金叉+2・布林未破下軌+1・RSI超賣低接+0.5</div>
+                    </div>
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <div class="font-bold text-red-700 mb-1">③ 風險扣分</div>
+                        <div class="text-slate-600 text-xs leading-relaxed">MACD死叉 −3・RSI超買 −1・跌破下軌(非存股型) −1.5・槓桿型直接排除</div>
+                    </div>
+                </div>
+                <div class="mt-3 text-xs text-slate-500 border-t border-slate-100 pt-3 flex flex-wrap gap-4">
+                    <span><strong>總分 =</strong> 基礎分×1.5 + 技術分 − 風險分</span>
+                    <span>🟢 <strong>≥10</strong> 現在佈局</span>
+                    <span>🔵 <strong>≥7</strong> 等待切入</span>
+                    <span>🟡 <strong>≥5</strong> 長線觀察</span>
+                    <span>⚪ <strong>&lt;5</strong> 暫不考慮</span>
+                </div>
+            </div>
+
+            <!-- 進度條 -->
+            <div id="longtermStatusArea" class="hidden bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+                <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                    <span id="longtermLog" class="text-emerald-600 scanning-pulse">準備篩選...</span>
+                    <span id="longtermPercent">0%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                    <div id="longtermProgressBar" class="bg-gradient-to-r from-emerald-400 to-teal-500 h-full rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- 結果區 -->
+            <div id="longtermResults" class="hidden">
+                <div id="longtermSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white px-5 py-3 flex items-center justify-between">
+                        <h3 class="font-bold flex items-center gap-2">🏆 篩選結果排行榜
+                            <span id="longtermCount" class="text-xs font-normal bg-white/20 px-2 py-0.5 rounded-full"></span>
+                        </h3>
+                        <span class="text-xs opacity-75">複合評分由高到低</span>
+                    </div>
+                    <div class="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500">
+                        <div class="col-span-1 text-center">排名</div>
+                        <div class="col-span-3">名稱 / 代碼</div>
+                        <div class="col-span-2">屬性</div>
+                        <div class="col-span-3">技術面狀態</div>
+                        <div class="col-span-2 text-center">持有信心 / 評分</div>
+                        <div class="col-span-1 text-right">收盤</div>
+                    </div>
+                    <div id="longtermList" class="divide-y divide-slate-100"></div>
+                </div>
+
+                <!-- 候補觀察名單 -->
+                <div class="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden">
+                    <div class="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 flex items-center justify-between">
+                        <h3 class="font-bold flex items-center gap-2">
+                            📋 候補觀察名單
+                            <span class="text-xs font-normal bg-white/20 px-2 py-0.5 rounded-full">新掛牌・資料累積中</span>
+                        </h3>
+                        <span class="text-xs opacity-80">達 60 交易日後自動升格</span>
+                    </div>
+                    <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 text-xs text-amber-800 leading-relaxed">
+                        ⚠️ 以下標的因上市未滿 60 個交易日，歷史資料不足以計算完整技術指標（MACD 需 35 天、布林通道需 20 天），
+                        <strong>暫不列入複合評分排行</strong>。待資料累積充足後將自動升格進入篩選器。
+                        點擊任一列可查看目前已有的資料與基本走勢。
+                    </div>
+                    <div id="watchlistCandidates" class="divide-y divide-amber-50"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==================== 個股詳細分析 Modal ==================== -->
+    <div id="detailModal" class="modal-closed fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4">
+        <div id="modalPanel" class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+            <!-- Modal 標頭 -->
+            <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div id="modalCategoryDot" class="w-3 h-3 rounded-full bg-blue-400"></div>
+                    <div>
+                        <h2 id="modalTitle" class="text-xl font-black">---</h2>
+                        <p id="modalSubtitle" class="text-slate-400 text-xs mt-0.5">載入中...</p>
+                    </div>
+                </div>
+                <button onclick="closeDetailModal()" class="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition text-xl leading-none">✕</button>
+            </div>
+
+            <!-- Modal 內容（可捲動） -->
+            <div class="overflow-y-auto flex-1 p-5 space-y-4">
+                <!-- 載入中 -->
+                <div id="modalLoading" class="text-blue-600 font-semibold py-12 text-center">
+                    <div class="spinner mx-auto mb-3"></div>
+                    正在從 TWSE 官方 API 抓取資料...<br>
+                    <span class="text-xs text-slate-400 font-normal mt-2 block" id="modalProxyStatus">建立連線中</span>
+                </div>
+
+                <!-- 結果區 -->
+                <div id="modalContent" class="hidden">
+                    <!-- 頂部：價格 + 指標摘要 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                            <div class="text-xs text-slate-400 mb-1">最新收盤</div>
+                            <div id="modalPrice" class="text-2xl font-black text-blue-600">---</div>
+                            <div id="modalDataInfo" class="text-xs text-slate-400 mt-1">---</div>
+                        </div>
+                        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                            <div class="text-xs text-slate-400 mb-1">布林通道</div>
+                            <div id="modalBB" class="text-sm font-bold mt-1">---</div>
+                        </div>
+                        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                            <div class="text-xs text-slate-400 mb-1">MACD 動能</div>
+                            <div id="modalMACD" class="text-sm font-bold mt-1">---</div>
+                        </div>
+                        <div id="modalRecBox" class="rounded-xl p-3 border">
+                            <div class="text-xs opacity-60 mb-1">綜合建議</div>
+                            <div id="modalRec" class="text-sm font-bold leading-snug">---</div>
+                        </div>
+                    </div>
+
+                    <!-- 新掛牌警示 -->
+                    <div id="modalNewBanner" class="hidden mb-3 p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-800"></div>
+
+                    <!-- 屬性判定 -->
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-sm">
+                        <span class="font-bold text-slate-600 block mb-1">🔍 標的屬性判定</span>
+                        <span id="modalAttrType" class="text-blue-700 font-bold"></span>
+                        <p id="modalAttrStrategy" class="text-slate-500 mt-1 text-xs leading-relaxed"></p>
+                    </div>
+
+                    <!-- 布林通道圖 -->
+                    <div class="border border-slate-200 rounded-xl p-4 bg-white shadow-sm" style="height:300px;position:relative;">
+                        <canvas id="modalPriceChart"></canvas>
+                    </div>
+
+                    <!-- MACD 圖 -->
+                    <div class="border border-slate-200 rounded-xl p-4 bg-white shadow-sm" style="height:200px;position:relative;">
+                        <canvas id="modalMacdChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 錯誤區 -->
+                <div id="modalError" class="hidden p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 1. ETF 名單：五大類別各 5 檔（共 25 檔），來源 TWSE 台灣證交所 ====================
+        const ETF_CATEGORIES = [
+            { key: 'market',   label: '市值型',  icon: '🏛️', color: 'blue'   },
+            { key: 'dividend', label: '高股息型', icon: '💰', color: 'green'  },
+            { key: 'thematic', label: '科技主題型',icon: '💡', color: 'purple' },
+            { key: 'active',   label: '主動管理型',icon: '🎯', color: 'orange' },
+            { key: 'leveraged',label: '槓桿型',   icon: '⚡', color: 'red'    }
+        ];
+
+        const ETF_WATCHLIST = [
+            // ── 市值型 (5 檔) ──
+            { id: '0050',   name: '元大台灣50',      type: 'market'   },
+            { id: '006208', name: '富邦台50',         type: 'market'   },
+            { id: '00692',  name: '富邦公司治理',      type: 'market'   },
+            { id: '00850',  name: '元大台灣ESG永續',   type: 'market'   },
+            { id: '00922',  name: '國泰台灣領袖50',    type: 'market'   },
+            // ── 高股息型 (5 檔) ──
+            { id: '0056',   name: '元大高股息',        type: 'dividend' },
+            { id: '00878',  name: '國泰永續高股息',     type: 'dividend' },
+            { id: '00713',  name: '元大台灣高息低波',   type: 'dividend' },
+            { id: '00919',  name: '群益台灣精選高息',   type: 'dividend' },
+            { id: '00929',  name: '復華台灣科技優息',   type: 'dividend' },
+            // ── 科技主題型 (5 檔) ──
+            { id: '0052',   name: '富邦科技',          type: 'thematic' },
+            { id: '00891',  name: '中信關鍵半導體',     type: 'thematic' },
+            { id: '00757',  name: '統一FANG+',         type: 'thematic' },
+            { id: '00662',  name: '富邦NASDAQ',        type: 'thematic' },
+            { id: '00881',  name: '國泰台灣5G+',       type: 'thematic' },
+            // ── 主動管理型 (5 檔) ──
+            { id: '00400A', name: '主動國泰動能高息',   type: 'active'   },
+            { id: '00981A', name: '主動統一台股增長',   type: 'active'   },
+            { id: '00991A', name: '主動復華未來50',     type: 'active'   },
+            { id: '00992A', name: '主動群益科技創新',   type: 'active'   },
+            { id: '009816', name: '凱基台灣TOP50',     type: 'active'   },
+            // ── 槓桿型 (5 檔) ──
+            { id: '00631L', name: '元大台灣50正2',     type: 'leveraged'},
+            { id: '00675L', name: '富邦臺灣加權正2',    type: 'leveraged'},
+            { id: '00885L', name: '國泰台灣加權正2',    type: 'leveraged'},
+            { id: '00753L', name: '統一台灣動能正2',    type: 'leveraged'},
+            { id: '00835L', name: '街口台灣加權正2',    type: 'leveraged'}
+        ];
+
+        // ==================== 2. 全域變數與介面切換 ====================
+        let priceChartInstance = null;
+        let macdChartInstance = null;
+
+        function switchTab(mode) {
+            ['single','scanner','longterm'].forEach(m => {
+                document.getElementById('mode-' + m).classList.toggle('hidden', mode !== m);
+            });
+            const active   = 'px-6 py-2.5 rounded-lg text-sm font-bold transition-colors';
+            const inactive = 'px-6 py-2.5 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors';
+            document.getElementById('tab-single').className    = active + (mode === 'single'   ? ' bg-blue-100 text-blue-700'    : ' text-slate-500 hover:bg-slate-50');
+            document.getElementById('tab-scanner').className   = active + (mode === 'scanner'  ? ' bg-blue-100 text-blue-700'    : ' text-slate-500 hover:bg-slate-50');
+            document.getElementById('tab-longterm').className  = active + (mode === 'longterm' ? ' bg-emerald-100 text-emerald-700' : ' text-slate-500 hover:bg-slate-50');
+        }
+
+        // ==================== 3. 核心數學與 API 模組 ====================
+        function calculateSMA(data, window) {
+            let result = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < window - 1) result.push(null);
+                else {
+                    let sum = 0; for (let j = 0; j < window; j++) sum += data[i - j];
+                    result.push(sum / window);
+                }
+            } return result;
+        }
+        function calculateSTD(data, window, sma) {
+            let result = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < window - 1) result.push(null);
+                else {
+                    let sumSq = 0; for (let j = 0; j < window; j++) sumSq += Math.pow(data[i - j] - sma[i], 2);
+                    result.push(Math.sqrt(sumSq / (window - 1)));
+                }
+            } return result;
+        }
+        function calculateEMA(data, span) {
+            let result = [], k = 2 / (span + 1);
+            for (let i = 0; i < data.length; i++) {
+                if (data[i] === null) { result.push(i > 0 ? result[i-1] : null); continue; }
+                if (i === 0 || result[i-1] === null) result.push(data[i]);
+                else result.push(data[i] * k + result[i - 1] * (1 - k));
+            } return result;
+        }
+        // RSI(14)：使用 Wilder 平滑法
+        function calculateRSI(data, period = 14) {
+            const result = Array(data.length).fill(null);
+            if (data.length < period + 1) return result;
+            let gains = 0, losses = 0;
+            for (let i = 1; i <= period; i++) {
+                const diff = data[i] - data[i - 1];
+                if (diff >= 0) gains += diff; else losses -= diff;
+            }
+            let avgGain = gains / period, avgLoss = losses / period;
+            result[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+            for (let i = period + 1; i < data.length; i++) {
+                const diff = data[i] - data[i - 1];
+                avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
+                avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
+                result[i] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+            }
+            return result;
+        }
+
+        async function fetchWithTimeout(url, ms) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ms);
+            try {
+                const res = await fetch(url, { signal: ctrl.signal });
+                clearTimeout(timer);
+                return res;
+            } catch(e) { clearTimeout(timer); throw e; }
+        }
+
+        // ==================== 台灣證交所/櫃買官方 API（無需 CORS Proxy）====================
+        // TWSE 上市：歷史成交資料（每次最多一個月，我們多次呼叫抓近 6 個月）
+        async function fetchTWSEHistory(stockId, months = 6) {
+            const allData = [];
+            const today = new Date();
+            for (let m = months - 1; m >= 0; m--) {
+                const d = new Date(today.getFullYear(), today.getMonth() - m, 1);
+                const yyyymmdd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}01`;
+                const url = `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=${yyyymmdd}&stockNo=${stockId}&response=json`;
+                try {
+                    const res = await fetchWithTimeout(url, 8000);
+                    if (!res.ok) continue;
+                    const json = await res.json();
+                    if (json.stat !== 'OK' || !json.data) continue;
+                    for (const row of json.data) {
+                        // row: [日期, 成交股數, 成交金額, 開盤價, 最高價, 最低價, 收盤價, 漲跌價差, 成交筆數]
+                        const closeStr = row[6].replace(/,/g, '');
+                        const close = parseFloat(closeStr);
+                        if (!isNaN(close)) allData.push(close);
+                    }
+                } catch(e) {}
+                await new Promise(r => setTimeout(r, 120));
+            }
+            return allData.length > 0 ? allData : null;
+        }
+
+        // TPEX 上櫃：歷史成交資料
+        async function fetchTPEXHistory(stockId, months = 6) {
+            const allData = [];
+            const today = new Date();
+            for (let m = months - 1; m >= 0; m--) {
+                const d = new Date(today.getFullYear(), today.getMonth() - m, 1);
+                const ym = `${d.getFullYear() - 1911}/${String(d.getMonth()+1).padStart(2,'0')}`;
+                const url = `https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php?l=zh-tw&d=${ym}&stkno=${stockId}&s=0,asc,0&o=json`;
+                try {
+                    const res = await fetchWithTimeout(url, 8000);
+                    if (!res.ok) continue;
+                    const json = await res.json();
+                    if (!json.aaData) continue;
+                    for (const row of json.aaData) {
+                        // row: [日期, 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 均價]
+                        const close = parseFloat(row[6].replace(/,/g, ''));
+                        if (!isNaN(close)) allData.push(close);
+                    }
+                } catch(e) {}
+                await new Promise(r => setTimeout(r, 120));
+            }
+            return allData.length > 0 ? allData : null;
+        }
+
+        // 主要抓取函數：先試 TWSE → 再試 TPEX → 最後試 Yahoo proxy
+        async function fetchStockData(stockId, isSilent = false) {
+            const statusEl = document.getElementById('singleProxyStatus');
+            const setStatus = (msg) => { if (!isSilent && statusEl) statusEl.innerText = msg; };
+
+            // 1. 嘗試 TWSE 上市
+            setStatus('嘗試台灣證交所(上市)資料...');
+            const twseData = await fetchTWSEHistory(stockId, 6);
+            if (twseData && twseData.length >= 10) return { closes: twseData, source: 'TWSE' };
+
+            // 2. 嘗試 TPEX 上櫃
+            setStatus('嘗試櫃買中心(上櫃)資料...');
+            const tpexData = await fetchTPEXHistory(stockId, 6);
+            if (tpexData && tpexData.length >= 10) return { closes: tpexData, source: 'TPEX' };
+
+            // 3. 最後備援：Yahoo Finance + CORS Proxy
+            setStatus('嘗試備援節點連線...');
+            return null; // 呼叫方改用 fetchWithFallback
+        }
+
+        async function fetchWithFallback(targetUrl, isSilent = false) {
+            const statusEl = document.getElementById('singleProxyStatus');
+            const encodedUrl = encodeURIComponent(targetUrl);
+            const proxies = [
+                { name: 'AllOrigins', url: `https://api.allorigins.win/get?url=${encodedUrl}`, type: 'json' },
+                { name: 'CodeTabs',   url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`, type: 'raw' },
+                { name: 'CorsProxy',  url: `https://corsproxy.io/?url=${encodedUrl}`, type: 'raw' }
+            ];
+            for (let proxy of proxies) {
+                if (!isSilent && statusEl) statusEl.innerText = `嘗試 ${proxy.name} 備援節點...`;
+                try {
+                    const response = await fetchWithTimeout(proxy.url, 9000);
+                    if (!response.ok) continue;
+                    if (proxy.type === 'json') {
+                        const wrapper = await response.json();
+                        if (!wrapper || !wrapper.contents) continue;
+                        return JSON.parse(wrapper.contents);
+                    } else {
+                        return JSON.parse(await response.text());
+                    }
+                } catch (e) {}
+            }
+            return null;
+        }
+
+        // ==================== 4. 模式一：單檔深度解析邏輯 ====================
+
+        // ==================== 個股名稱知識庫 ====================
+        const STOCK_NAMES = {
+            // 大型權值股
+            '2330':'台積電','2317':'鴻海','2454':'聯發科','2308':'台達電',
+            '2382':'廣達','2303':'聯電','2881':'富邦金','2882':'國泰金',
+            '2886':'兆豐金','2891':'中信金','2002':'中鋼','1301':'台塑',
+            '1303':'南亞','6505':'台塑化','2412':'中華電','3008':'大立光',
+            '2207':'和泰車','2357':'華碩','2379':'瑞昱','2395':'研華',
+            // 金融股
+            '2884':'玉山金','2885':'元大金','2887':'台新金','2888':'新光金',
+            '2890':'永豐金','5880':'合庫金','2892':'第一金','2301':'光寶科',
+            '2823':'中壽','2832':'台產',
+            // 電子/科技個股
+            '2330':'台積電','3034':'聯詠','3231':'緯創','2327':'國巨',
+            '2344':'華邦電','2363':'矽統','2376':'技嘉','2377':'微星',
+            '2383':'台光電','3037':'欣興','3045':'台灣大','4938':'和碩',
+            '6415':'矽力-KY','6669':'緯穎','5274':'信驊','6770':'力積電',
+            '2337':'旺宏','2408':'南亞科','2347':'聯強','2352':'佳世達',
+            // 傳產
+            '1101':'台泥','1102':'亞泥','1216':'統一','1229':'聯華',
+            '1314':'中石化','1326':'台化','2105':'正新','2204':'中華',
+            // 美股常見
+            'TSLA':'Tesla','NVDA':'NVIDIA','AAPL':'Apple','MSFT':'Microsoft',
+            'AMZN':'Amazon','GOOGL':'Alphabet','META':'Meta','AMD':'AMD',
+            'INTC':'Intel','TSM':'台積電ADR',
+        };
+
+        // 細化屬性標籤（用於顯示，比 cat 更豐富）
+        const ASSET_TAGS = {
+            // 特定個股的精確標籤
+            '2330': { tag: '半導體龍頭・AI核心', badge: '🏆 護國神山' },
+            '2454': { tag: '晶片設計・AI概念', badge: '🤖 AI飆股' },
+            '2382': { tag: 'AI伺服器・雲端', badge: '🤖 AI飆股' },
+            '2317': { tag: '代工巨頭・AI伺服器', badge: '🏭 大型製造' },
+            '2308': { tag: '電源管理・綠能', badge: '⚡ 電力概念' },
+            '3008': { tag: '光學元件・精密製造', badge: '🔬 精密科技' },
+            '2412': { tag: '電信龍頭・穩定配息', badge: '📡 防禦型' },
+            '2881': { tag: '金控・保險・壽險', badge: '🏦 金融股' },
+            '2882': { tag: '金控・壽險龍頭', badge: '🏦 金融股' },
+            '6505': { tag: '石化・原物料', badge: '🛢️ 傳產' },
+            // ETF 精確標籤（by id）
+            '0050':   { tag: '台股前50大市值', badge: '🏛️ 大盤型ETF' },
+            '006208': { tag: '台股前50大市值', badge: '🏛️ 大盤型ETF' },
+            '0056':   { tag: '高殖利率篩選', badge: '💰 高股息ETF' },
+            '00878':  { tag: '永續高股息・低波動', badge: '💰 高股息ETF' },
+            '00713':  { tag: '高息低波・穩定配息', badge: '💰 高股息ETF' },
+            '00919':  { tag: '精選高息・季配息', badge: '💰 高股息ETF' },
+            '00929':  { tag: '科技股高息・月配息', badge: '💰 科技高息ETF' },
+            '0052':   { tag: '電子科技・台股科技龍頭', badge: '💡 科技ETF' },
+            '00891':  { tag: '半導體關鍵零組件', badge: '💡 半導體ETF' },
+            '00757':  { tag: 'FAANG+科技巨頭', badge: '🌐 美科技ETF' },
+            '00662':  { tag: 'NASDAQ 100追蹤', badge: '🌐 美科技ETF' },
+            '00631L': { tag: '台灣50・2倍槓桿', badge: '⚡ 槓桿ETF' },
+            '00675L': { tag: '台加權指數・2倍槓桿', badge: '⚡ 槓桿ETF' },
+        };
+
+        // 個股分類知識庫
+        const STOCK_KNOWLEDGE = {
+            etfMap: (() => {
+                const m = {};
+                ETF_WATCHLIST.forEach(e => { m[e.id] = e; });
+                return m;
+            })(),
+
+            blueChips: new Set(['2330','2317','2454','2308','2382','2303','2881','2882',
+                                '2886','2891','2002','1301','1303','6505','2412','3008',
+                                '2207','2357','2379','2395']),
+
+            classify(rawId) {
+                const id = rawId.replace(/\.(TW|TWO)$/i, '').toUpperCase();
+                const name = STOCK_NAMES[id] || '';
+                const customTag = ASSET_TAGS[id] || null;
+
+                // ETF Watchlist 精確查
+                if (this.etfMap[id]) {
+                    const e = this.etfMap[id];
+                    const typeMap = {
+                        dividend: { cat: 'dividend', label: `高股息 ETF・${e.name}` },
+                        market:   { cat: 'market',   label: `市值大盤型 ETF・${e.name}` },
+                        thematic: { cat: 'thematic', label: `科技主題 ETF・${e.name}` },
+                        active:   { cat: 'active',   label: `主動管理 ETF・${e.name}` },
+                        leveraged:{ cat: 'leveraged',label: `槓桿型 ETF・${e.name}` },
+                        bond:     { cat: 'dividend', label: `債券型 ETF・${e.name}` },
+                    };
+                    const r = typeMap[e.type] || { cat: 'thematic', label: `ETF・${e.name}` };
+                    r.name = e.name;
+                    r.customTag = customTag;
+                    return r;
+                }
+
+                // ETF 代碼規則
+                if (/^\d{5,6}[A-Z]?$/.test(id)) {
+                    if (/L$/.test(id)) return { cat: 'leveraged', label: '槓桿/反向型 ETF', name: '', customTag };
+                    if (/R$/.test(id)) return { cat: 'leveraged', label: '反向型 ETF', name: '', customTag };
+                    if (/[AB]$/.test(id)) return { cat: 'active', label: '主動管理型 ETF', name: '', customTag };
+                    if (/^009|^008[5-9]/.test(id)) return { cat: 'thematic', label: '科技主題型 ETF', name: '', customTag };
+                    return { cat: 'thematic', label: '主題型 ETF', name: '', customTag };
+                }
+
+                // 個股
+                if (this.blueChips.has(id)) return { cat: 'blue_chip', label: `大型權值股${name ? '・' + name : ''}`, name, customTag };
+                if (/^28[0-9]{2}$|^29[0-9]{2}$|^58[0-9]{2}$/.test(id)) return { cat: 'finance', label: `金融股${name ? '・' + name : ''}`, name, customTag };
+                if (/^1[0-9]{3}$/.test(id)) return { cat: 'trad_mfg', label: `傳統產業股${name ? '・' + name : ''}`, name, customTag };
+                if (/^[236][0-9]{3}$/.test(id)) return { cat: 'tech', label: `電子/科技股${name ? '・' + name : ''}`, name, customTag };
+                if (/^[A-Z]/.test(id)) return { cat: 'us_stock', label: `美股${name ? '・' + name : ''}`, name, customTag };
+                return { cat: 'general', label: '一般股票', name, customTag };
+            }
+        };
+
+        // 策略說明對照表（含中長期持有信心基礎分 holdScore，1~5）
+        const STRATEGY_DESC = {
+            dividend:  { name: '高股息型',   holdScore: 4.5,
+                holdReason: '設計為長期配息，即使股價下跌仍持續配息，是最適合中長期抱股的類型。',
+                desc: '【均值回歸策略】此類標的設計為低波動配息，不適合追漲。等待跌破布林下軌或 RSI 超賣時分批建倉，長期持有領息。勿在突破上軌時追高。' },
+            market:    { name: '市值大盤型', holdScore: 4.0,
+                holdReason: '追蹤整體市場，長期向上機率高，是定期定額與長期持有的優質選擇。',
+                desc: '【趨勢確認策略】大盤 ETF 走勢溫吞，需布林突破 + MACD 紅柱 + RSI 健康（45~72）三重確認。RSI 超買時突破通常是陷阱。' },
+            thematic:  { name: '科技主題型', holdScore: 3.0,
+                holdReason: '主題式 ETF 績效與主題熱度高度相關，長期持有需確認主題趨勢未轉變。',
+                desc: '【動能突破策略】科技主題波動較大，可使用布林突破戰法，但須搭配 MACD 動能確認。RSI 超買（>70）時即使突破也要謹慎。' },
+            active:    { name: '主動管理型', holdScore: 3.0,
+                holdReason: '依賴基金經理人的主動選股能力，長期持有需定期檢視績效是否符合預期。',
+                desc: '【MACD 動能策略】主動型 ETF 走勢不緊跟大盤，以 MACD 趨勢判斷為主軸，布林通道輔助判斷超買超賣。適合波段操作。' },
+            leveraged: { name: '槓桿型',     holdScore: 1.0,
+                holdReason: '槓桿型 ETF 存在「每日重置」的耗損效應，長期持有幾乎必然虧損，僅適合短線操作。',
+                desc: '【嚴格動能策略⚠️】槓桿型 ETF 風險極高，進場條件須同時滿足：突破上軌 + MACD 擴張 + RSI 健康區間。MACD 死叉必須立即出場，停損設 -5%。' },
+            blue_chip: { name: '大型權值股', holdScore: 3.5,
+                holdReason: '具有龍頭地位與護城河，但個股風險仍高於 ETF，中長期持有需關注基本面是否維持競爭力。',
+                desc: '【趨勢波段策略】大型權值股需大量資金推動，主升段明確但反應慢。建議以 MACD 金叉確認趨勢，RSI 超買時（>72）減量，死叉時出場。' },
+            finance:   { name: '金融股',     holdScore: 4.0,
+                holdReason: '金融股受惠於升息環境，配息穩定，是兼具存股與波段特性的長期持有標的。',
+                desc: '【存股+波段策略】金融股具備定期配息特性，兼具存股與波段價值。跌破布林下軌 + RSI 超賣時為加碼佳機；上軌附近適合減碼，長期持有為主。' },
+            tech:      { name: '電子/科技股',holdScore: 2.5,
+                holdReason: '科技股波動劇烈，長期持有需承受高波動，適合有心理準備的投資人，建議搭配嚴格停損。',
+                desc: '【動能突破策略】電子科技股波動明顯，適合布林突破+MACD雙確認的追強戰法。RSI 超買需特別注意（>72 考慮減碼），MACD 死叉後不宜抱緊。' },
+            trad_mfg:  { name: '傳統產業股', holdScore: 2.5,
+                holdReason: '傳產股受景氣循環影響明顯，長期持有需注意產業週期，適合區間操作而非長期抱股。',
+                desc: '【均值回歸+波段】傳產股通常走區間震盪，布林下軌+RSI 超賣時為低接時機，布林上軌+RSI 超買時適合減碼，區間操作為主。' },
+            us_stock:  { name: '美股',       holdScore: 3.0,
+                holdReason: '美股長期趨勢向上，但需承受匯率風險與時差資訊不對稱，長期持有以指數型為佳。',
+                desc: '【動能趨勢策略】美股趨勢性強，MACD 動能指標效果良好。RSI 健康區間（40~70）的 MACD 金叉為進場訊號，RSI 超買（>75）時注意拉回。' },
+            general:   { name: '一般股票',   holdScore: 2.0,
+                holdReason: '類別不明確，建議以短中線操作為主，長期持有前需深入了解個股基本面。',
+                desc: '【布林+MACD雙確認】適合使用布林通道搭配 MACD 動能的標準波段操作策略。' },
+        };
+
+        function analyzeAssetAttribute(ticker, recentBandwidths) {
+            const rawId = ticker.replace(/\.(TW|TWO)$/i, '').toUpperCase();
+            const classified = STOCK_KNOWLEDGE.classify(rawId);
+            const strategy = STRATEGY_DESC[classified.cat] || STRATEGY_DESC['general'];
+            return {
+                cat: classified.cat,
+                name: classified.name || '',
+                label: classified.label,
+                customTag: classified.customTag,
+                type: `${strategy.name}（${classified.label}）`,
+                strategy: strategy.desc,
+                holdScore: strategy.holdScore,
+                holdReason: strategy.holdReason,
+            };
+        }
+
+        // 中長期持有信心指數計算
+        function calcHoldScore(baseScore, cat, latest, prev, rsiVal) {
+            let score = baseScore;
+            const latestHist = latest.hist, prevHist = prev ? prev.hist : null;
+            // 動態加分
+            if (latestHist !== null && latestHist > 0) score += 0.5;
+            if (prevHist !== null && latestHist !== null && prevHist <= 0 && latestHist > 0) score += 0.5; // 金叉
+            if (rsiVal !== null && rsiVal > 45 && rsiVal < 70) score += 0.5; // RSI 健康
+            // 動態扣分
+            if (prevHist !== null && latestHist !== null && prevHist >= 0 && latestHist < 0) score -= 1.5; // 死叉
+            if (rsiVal !== null && rsiVal >= 75) score -= 0.5; // 超買
+            if (rsiVal !== null && rsiVal <= 30) score += 0.3; // 超賣（存股型是機會）
+            if (latest.upper !== null && latest.close < latest.lower) {
+                // 存股型跌破下軌加分，其他類型扣分
+                if (['dividend','finance','market'].includes(cat)) score += 0.3;
+                else score -= 0.5;
+            }
+            score = Math.max(1, Math.min(5, Math.round(score * 2) / 2)); // 0.5 步進，限 1~5
+            const starsArr = '★'.repeat(Math.floor(score)) + (score % 1 >= 0.5 ? '½' : '') + '☆'.repeat(Math.max(0, 5 - Math.ceil(score)));
+            const label = score >= 4.5 ? '非常適合長抱' : score >= 3.5 ? '適合中長期持有' : score >= 2.5 ? '波段操作為宜' : score >= 1.5 ? '短線為主謹慎' : '不宜長期持有';
+            const color = score >= 4 ? 'text-green-600' : score >= 3 ? 'text-blue-600' : score >= 2 ? 'text-yellow-600' : 'text-red-600';
+            const barColor = score >= 4 ? 'bg-green-500' : score >= 3 ? 'bg-blue-500' : score >= 2 ? 'bg-yellow-500' : 'bg-red-500';
+            const barWidth = Math.round(score / 5 * 100);
+            return { score, stars: starsArr, label, color, barColor, barWidth };
+        }
+
+        async function runSingleAnalysis() {
+            const inputTicker = document.getElementById('tickerInput').value.trim().toUpperCase();
+            if (!inputTicker) return alert("請輸入股票代碼！");
+
+            document.getElementById('singleResult').classList.add('hidden');
+            document.getElementById('singleLoading').classList.remove('hidden');
+
+            try {
+                // ⭐️ 判斷是否為台股代碼（4~6碼數字，可能有1個字母後綴）
+                const isTWStock = /^\d{4,6}[A-Z]?$/.test(inputTicker);
+                const isTWStockWithSuffix = isTWStock && /[A-Z]$/.test(inputTicker);
+                let closes = null;
+                let finalTicker = inputTicker;
+                let dataSource = '';
+
+                if (isTWStock) {
+                    // 路徑一：台股 → 先試官方 API（TWSE/TPEX），再試 Yahoo proxy
+                    const officialResult = await fetchStockData(inputTicker, false);
+                    if (officialResult) {
+                        closes = officialResult.closes;
+                        dataSource = officialResult.source;
+                        finalTicker = inputTicker;
+                    } else {
+                        // 備援：Yahoo Finance proxy（試 .TW 再試 .TWO）
+                        const statusEl = document.getElementById('singleProxyStatus');
+                        if (statusEl) statusEl.innerText = '嘗試 Yahoo Finance 備援...';
+                        const suffixes = ['.TW', '.TWO'];
+                        for (const sfx of suffixes) {
+                            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${inputTicker}${sfx}?range=6mo&interval=1d`;
+                            const rawData = await fetchWithFallback(url, true);
+                            if (rawData && rawData.chart && rawData.chart.result) {
+                                const rawC = rawData.chart.result[0].indicators.quote[0].close;
+                                closes = []; let lv = 0;
+                                for (const c of rawC) { if (c !== null) lv = c; closes.push(c !== null ? c : lv); }
+                                finalTicker = inputTicker + sfx;
+                                dataSource = 'Yahoo';
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // 路徑二：美股或其他 → 直接 Yahoo proxy
+                    let candidates = [inputTicker];
+                    if (inputTicker.endsWith('.TW')) candidates = [inputTicker, inputTicker.replace('.TW', '.TWO')];
+                    else if (inputTicker.endsWith('.TWO')) candidates = [inputTicker, inputTicker.replace('.TWO', '.TW')];
+                    for (const t of candidates) {
+                        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${t}?range=6mo&interval=1d`;
+                        const rawData = await fetchWithFallback(url, false);
+                        if (rawData && rawData.chart && rawData.chart.result) {
+                            const rawC = rawData.chart.result[0].indicators.quote[0].close;
+                            closes = []; let lv = 0;
+                            for (const c of rawC) { if (c !== null) lv = c; closes.push(c !== null ? c : lv); }
+                            finalTicker = t; dataSource = 'Yahoo';
+                            break;
+                        }
+                    }
+                }
+
+                if (!closes || closes.length < 5) throw new Error(`找不到【${inputTicker}】的資料。\n\n可能原因：\n• 代碼輸入有誤（台股請輸入純數字代碼，如 2330、00878）\n• 該標的資料尚未建立\n• 網路連線問題，請稍後再試`);
+
+                // 用序號產生日期標籤（官方 API 無 timestamp）
+                const len = closes.length;
+                const dates = Array.from({length: len}, (_, i) => String(i + 1));
+                const dateStr = '最新';
+
+                // ⭐️ 新掛牌 ETF 資料不足保護：MACD 需 35+ 天、布林需 20+ 天
+                const isNewListing = len < 35;
+                const hasBBData = len >= 20;
+
+                const sma20 = calculateSMA(closes, 20);
+                const std20 = calculateSTD(closes, 20, sma20);
+                let upper = [], lower = [], bw = [];
+                for(let i=0; i<len; i++) {
+                    if(sma20[i] !== null) {
+                        upper.push(sma20[i] + (std20[i] * 2)); lower.push(sma20[i] - (std20[i] * 2));
+                        bw.push((upper[i] - lower[i]) / sma20[i]);
+                    } else { upper.push(null); lower.push(null); bw.push(null); }
+                }
+                const bwSma = calculateSMA(bw, 20);
+
+                const ema12 = calculateEMA(closes, 12); const ema26 = calculateEMA(closes, 26);
+                let macd = []; for(let i=0; i<len; i++) macd.push(ema12[i]!==null && ema26[i]!==null ? ema12[i]-ema26[i] : null);
+                const signal = calculateEMA(macd, 9);
+                let hist = []; for(let i=0; i<len; i++) hist.push(macd[i]!==null && signal[i]!==null ? macd[i]-signal[i] : null);
+                const rsi14 = calculateRSI(closes, 14);
+
+                const latest = {
+                    close: closes[len-1],
+                    upper: upper[len-1], lower: lower[len-1],
+                    bw: bw[len-1], bw_sma: bwSma[len-1],
+                    macd: macd[len-1], hist: hist[len-1],
+                    rsi: rsi14[len-1]
+                };
+                const prev = { close: closes[len-2], upper: upper[len-2], hist: hist[len-2], rsi: rsi14[len-2] };
+
+                const assetAttr = analyzeAssetAttribute(finalTicker, bw);
+
+                // 新掛牌警示區塊
+                const newListingBanner = isNewListing ? `
+                    <div class="mb-4 p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-800">
+                        ⚠️ <strong>新掛牌標的</strong>：歷史資料僅 ${len} 天，不足計算完整技術指標（需 35+ 天）。<br>
+                        以下分析僅供參考，建議等累積更多數據後再進行完整解讀。
+                    </div>` : '';
+
+                let bb_status, macd_status, rsi_status, rec = "", recColor = "";
+
+                if (!hasBBData || latest.upper === null) {
+                    bb_status = "<span class='text-amber-600 font-bold'>資料不足</span>：尚未達到 20 天計算門檻";
+                } else {
+                    bb_status = latest.close > latest.upper ? "<span class='text-red-600 font-bold'>突破上軌</span>：強勢表態" :
+                                latest.close < latest.lower ? "<span class='text-green-600 font-bold'>跌破下軌</span>：弱勢超賣" :
+                                (latest.bw !== null && latest.bw_sma !== null && latest.bw < latest.bw_sma) ? "<span class='text-yellow-600 font-bold'>通道收斂</span>：準備表態" : "通道內震盪";
+                }
+
+                const latestHist = latest.hist, prevHist = prev.hist;
+                if (latestHist === null || prevHist === null) {
+                    macd_status = "<span class='text-amber-600 font-bold'>資料不足</span>：尚未達到 35 天計算門檻";
+                } else {
+                    macd_status = (prevHist <= 0 && latestHist > 0) ? "🔥 黃金交叉" :
+                                  (prevHist >= 0 && latestHist < 0) ? "🧊 死亡交叉" :
+                                  (latestHist > 0 && latestHist > prevHist) ? "📈 動能擴張 (紅柱放大)" :
+                                  (latestHist > 0) ? "⚠️ 動能衰退 (紅柱縮減)" : "📉 空頭格局 (綠柱)";
+                }
+
+                // RSI 狀態
+                const rsiVal = latest.rsi;
+                if (rsiVal === null) {
+                    rsi_status = "<span class='text-amber-600 font-bold'>資料不足</span>";
+                } else {
+                    const rsiNum = rsiVal.toFixed(1);
+                    rsi_status = rsiVal >= 70 ? `<span class='text-red-600 font-bold'>超買 (${rsiNum})</span>：動能過熱，注意拉回風險` :
+                                 rsiVal <= 30 ? `<span class='text-green-600 font-bold'>超賣 (${rsiNum})</span>：短線超賣，留意反彈機會` :
+                                 rsiVal >= 50 ? `多頭區間 (${rsiNum})` : `空頭區間 (${rsiNum})`;
+                }
+
+                if (isNewListing) {
+                    // 新掛牌：用 EMA5/EMA10 簡易判斷短線趨勢
+                    const ema5 = calculateEMA(closes, 5); const ema10 = calculateEMA(closes, 10);
+                    const e5 = ema5[len-1], e10 = ema10[len-1];
+                    if (e5 !== null && e10 !== null) {
+                        rec = e5 > e10 ? "【📊 短線偏多】EMA5 站上 EMA10，短期走勢向上，但新掛牌標的波動大，宜謹慎追價。" :
+                                         "【📊 短線偏弱】EMA5 跌破 EMA10，短期走勢偏弱，建議觀望等待指標穩定。";
+                        recColor = e5 > e10 ? "bg-blue-50 text-blue-800 border-blue-300" : "bg-slate-100 text-slate-700 border-slate-300";
+                    } else {
+                        rec = "【⏳ 觀察中】資料累積中，建議等待更多交易日再行分析。";
+                        recColor = "bg-slate-100 text-slate-700";
+                    }
+                } else if (latest.upper === null) {
+                    rec = "【⏳ 資料不足】尚在累積中，暫無建議。";
+                    recColor = "bg-slate-100 text-slate-700";
+
+                // ── 依類別套用專屬演算法 ──
+                } else {
+                    const cat = assetAttr.cat || 'general';
+                    const rsiOversold  = rsiVal !== null && rsiVal <= 35;
+                    const rsiOverbought= rsiVal !== null && rsiVal >= 72;
+                    const rsiHealthy   = rsiVal !== null && rsiVal > 45 && rsiVal < 72;
+                    const rsiWeak      = rsiVal !== null && rsiVal < 45;
+                    const isGoldenX    = prevHist !== null && latestHist !== null && prevHist <= 0 && latestHist > 0;
+                    const isDeadX      = prevHist !== null && latestHist !== null && prevHist >= 0 && latestHist < 0;
+                    const macdExpanding= latestHist !== null && prevHist !== null && latestHist > 0 && latestHist > prevHist;
+                    const aboveUpper   = latest.upper !== null && latest.close > latest.upper;
+                    const belowLower   = latest.lower !== null && latest.close < latest.lower;
+
+                    if (['dividend', 'finance'].includes(cat)) {
+                        // 均值回歸策略：存股類，逢跌低接、上軌勿追
+                        if (belowLower && rsiOversold)
+                            { rec = "【💎 強力低接訊號】跌破布林下軌 + RSI 超賣雙確認，為此類標的最佳加碼時機，可積極分批建倉。"; recColor = "bg-purple-100 text-purple-800 border-purple-300"; }
+                        else if (belowLower)
+                            { rec = "【💎 超跌低接佳機】股價跌破布林下軌出現乖離，適合開始分批佈局，RSI 若同步下探則更佳。"; recColor = "bg-purple-100 text-purple-800"; }
+                        else if (rsiOversold && isGoldenX)
+                            { rec = "【🟢 RSI 超賣 + MACD 金叉】短線超賣且動能翻正，可考慮加碼。"; recColor = "bg-green-100 text-green-800 border-green-300"; }
+                        else if (rsiOversold)
+                            { rec = "【🟢 RSI 超賣留意】短線超賣，可開始小量佈局，等待布林下軌測試確認。"; recColor = "bg-green-100 text-green-800"; }
+                        else if (aboveUpper || rsiOverbought)
+                            { rec = "【⚠️ 追高風險】觸及上軌或 RSI 超買，此類低波標的追高容易套牢，建議空手等待回落。"; recColor = "bg-yellow-100 text-yellow-800"; }
+                        else if (isDeadX)
+                            { rec = "【🛑 動能轉弱】MACD 死叉，存股族持有無妨，但暫緩加碼等待止跌訊號。"; recColor = "bg-slate-100 text-slate-600"; }
+                        else
+                            { rec = "【☕ 維持紀律】目前處於正常區間，定期定額持續執行，不追高不殺低。"; recColor = "bg-slate-100 text-slate-700"; }
+
+                    } else if (['market'].includes(cat)) {
+                        // 趨勢確認策略：大盤型，三重確認過濾假突破
+                        if (aboveUpper && macdExpanding && rsiHealthy)
+                            { rec = "【🚀 趨勢突破三重確認】突破上軌 + MACD 動能擴張 + RSI 健康，大盤難得進場時機，可考慮佈局。"; recColor = "bg-red-100 text-red-800"; }
+                        else if (aboveUpper && rsiOverbought)
+                            { rec = "【⚠️ 突破但過熱】RSI 已超買，大盤型標的此時追高易被洗出，建議等 RSI 降至 60 以下再進場。"; recColor = "bg-yellow-100 text-yellow-800"; }
+                        else if (aboveUpper && !rsiHealthy)
+                            { rec = "【⚠️ 假突破風險】突破上軌但 RSI 未配合，大盤型 ETF 的假突破機率高，建議等 MACD 及 RSI 雙重確認。"; recColor = "bg-yellow-100 text-yellow-800"; }
+                        else if (isGoldenX && rsiHealthy)
+                            { rec = "【🔥 MACD 金叉確認】黃金交叉且 RSI 健康，大盤趨勢回升，可分批建立多頭部位。"; recColor = "bg-orange-100 text-orange-800"; }
+                        else if (isDeadX || rsiWeak)
+                            { rec = "【🛑 趨勢轉弱觀望】MACD 死叉或 RSI 弱勢，宜等待趨勢明朗後再行動，保留現金。"; recColor = "bg-slate-100 text-slate-600"; }
+                        else
+                            { rec = latestHist > 0 ? "【🛡️ 多頭格局持有】大盤趨勢向上，持有不動是最佳策略，避免頻繁進出。" : "【☕ 盤整期觀望】大盤區間震盪，等待方向明確後再行動。"; recColor = "bg-slate-100 text-slate-700"; }
+
+                    } else if (['leveraged'].includes(cat)) {
+                        // 嚴格動能策略：槓桿型，多重確認進場、死叉即出
+                        if (aboveUpper && macdExpanding && rsiHealthy)
+                            { rec = "【⚡ 槓桿進場訊號】三重確認到位，可小量進場，但務必嚴設停損 (-5%)，槓桿波動劇烈。"; recColor = "bg-red-100 text-red-800"; }
+                        else if (aboveUpper && rsiOverbought)
+                            { rec = "【🔥 槓桿過熱警告！】RSI 已超買且突破上軌，槓桿型最易在此位置急跌，強烈建議不追。"; recColor = "bg-orange-100 text-orange-800"; }
+                        else if (isDeadX)
+                            { rec = "【🛑 槓桿立即出場！】MACD 死叉，槓桿型跌幅倍增，無論虧損多少應立即出場止損。"; recColor = "bg-red-200 text-red-900 border-red-400"; }
+                        else if (belowLower)
+                            { rec = "【🚫 槓桿不宜低接】與高股息型相反，槓桿型跌破下軌代表趨勢向下加速，切勿逢低接刀。"; recColor = "bg-red-100 text-red-800"; }
+                        else
+                            { rec = latestHist > 0 ? "【🛡️ 槓桿持有觀察】多頭持續，緊盯 MACD 柱狀圖是否開始縮減，一旦死叉立即出場。" : "【☕ 槓桿空手等待】動能不足，空倉觀望，等待明確突破訊號再進場。"; recColor = "bg-slate-100 text-slate-700"; }
+
+                    } else if (['blue_chip'].includes(cat)) {
+                        // 大型權值股：需大量資金，以 MACD 確認趨勢為主
+                        if (aboveUpper && isGoldenX && rsiHealthy)
+                            { rec = "【🚀 主升段確認】突破上軌 + MACD 金叉 + RSI 健康，大型權值股少見強訊號，可積極布局。"; recColor = "bg-red-100 text-red-800"; }
+                        else if (isGoldenX && rsiHealthy)
+                            { rec = "【🔥 MACD 金叉佈局】黃金交叉且 RSI 健康，可開始建立多頭部位，等待股價突破上軌加碼。"; recColor = "bg-orange-100 text-orange-800"; }
+                        else if (rsiOverbought && aboveUpper)
+                            { rec = "【💰 減碼時機】RSI 超買且站上上軌，可考慮減碼 30~50% 獲利了結，等待回檔再加回。"; recColor = "bg-blue-100 text-blue-800"; }
+                        else if (isDeadX)
+                            { rec = "【🛑 死叉出場】MACD 死叉，大型權值股趨勢轉向，建議出場等待下一次金叉訊號。"; recColor = "bg-green-100 text-green-800"; }
+                        else if (belowLower && rsiOversold)
+                            { rec = "【🟢 超跌反彈機會】大型權值股跌破下軌 + RSI 超賣，短線超跌可考慮分批低接，但需等 MACD 翻紅確認。"; recColor = "bg-green-100 text-green-800"; }
+                        else
+                            { rec = latestHist > 0 ? "【🛡️ 持有續抱】多頭格局持續，沿 20MA 持有，MACD 死叉前不輕易出場。" : "【☕ 暫不介入】動能不足，等待 MACD 金叉且 RSI 站上 50 再進場。"; recColor = "bg-slate-100 text-slate-700"; }
+
+                    } else if (['tech', 'thematic', 'active', 'us_stock'].includes(cat)) {
+                        // 動能突破策略：科技股/主題 ETF/美股
+                        if (aboveUpper && (isGoldenX || macdExpanding) && !rsiOverbought)
+                            { rec = "【🚀 強勢買進】突破上軌 + MACD 動能確認 + RSI 未過熱，趨勢啟動訊號，可進場追多。"; recColor = "bg-red-100 text-red-800"; }
+                        else if (aboveUpper && rsiOverbought)
+                            { rec = "【⚠️ 突破但 RSI 過熱】RSI 超買，雖突破但短線過熱，建議等 RSI 回落至 60 以下再追，避免追在高點。"; recColor = "bg-yellow-100 text-yellow-800"; }
+                        else if (isGoldenX && !belowLower && rsiHealthy)
+                            { rec = "【🔥 黃金交叉進場】MACD 金叉且 RSI 健康，可建立初步多頭部位，等待布林上軌突破加碼。"; recColor = "bg-orange-100 text-orange-800"; }
+                        else if (latest.close < prev.close && latestHist < prevHist && prev.close > prev.upper)
+                            { rec = "【💰 停利減碼時機】高檔跌回通道且動能衰退，已有部位者可先減碼 50%，鎖定部分獲利。"; recColor = "bg-blue-100 text-blue-800"; }
+                        else if (isDeadX || belowLower)
+                            { rec = "【🛑 避開/停損】趨勢轉弱訊號明確，有部位者嚴格執行停損，空手者觀望等待訊號重新出現。"; recColor = "bg-green-100 text-green-800"; }
+                        else
+                            { rec = latestHist > 0 ? "【🛡️ 持有續抱】多頭格局持續，沿 20MA 持有，等待下一波突破機會。" : "【☕ 暫不介入】動能弱勢，等待 MACD 翻正且布林通道收斂後的突破訊號。"; recColor = "bg-slate-100 text-slate-700"; }
+
+                    } else {
+                        // general / 其他
+                        if (aboveUpper && (isGoldenX || macdExpanding))
+                            { rec = "【🚀 突破買進訊號】突破布林上軌且 MACD 動能確認，可考慮進場。"; recColor = "bg-red-100 text-red-800"; }
+                        else if (belowLower && rsiOversold)
+                            { rec = "【🟢 超跌低接機會】跌破下軌 + RSI 超賣，短線超跌可考慮低接，等 MACD 翻紅後加碼。"; recColor = "bg-green-100 text-green-800"; }
+                        else if (isDeadX)
+                            { rec = "【🛑 動能轉弱】MACD 死叉，趨勢轉向，建議出場觀望。"; recColor = "bg-slate-100 text-slate-600"; }
+                        else
+                            { rec = latestHist > 0 ? "【🛡️ 持有觀察】多頭格局，持有為主。" : "【☕ 觀望等待】等待明確進場訊號。"; recColor = "bg-slate-100 text-slate-700"; }
+                    }
+                }
+
+                // 計算中長期持有信心指數
+                const holdInfo = calcHoldScore(assetAttr.holdScore || 2.5, assetAttr.cat, latest, prev, rsiVal);
+
+                // 標的代碼（去掉 .TW/.TWO）
+                const displayId = finalTicker.replace(/\.TW$|\.TWO$/i, '');
+                // 名稱顯示
+                const displayName = assetAttr.name ? `<span class="text-lg font-bold text-slate-600 ml-2">${assetAttr.name}</span>` : '';
+                // 細化屬性 badge
+                const customTagHtml = assetAttr.customTag
+                    ? `<span class="inline-block text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 ml-2">${assetAttr.customTag.badge}</span>
+                       <div class="text-xs text-slate-400 mt-0.5">${assetAttr.customTag.tag}</div>`
+                    : '';
+
+                document.getElementById('singleResult').innerHTML = `
+                    ${newListingBanner}
+                    <!-- 標的名稱區 -->
+                    <div class="mb-4 pb-3 border-b border-slate-100">
+                        <div class="text-xs text-slate-400 mb-1">歷史資料 ${len} 筆　來源: ${dataSource}</div>
+                        <div class="flex items-baseline flex-wrap gap-1">
+                            <span class="text-3xl font-black text-slate-900">${displayId}</span>
+                            ${displayName}
+                        </div>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap">
+                            <span class="text-2xl font-bold text-blue-600">$${latest.close.toFixed(2)}</span>
+                            ${customTagHtml}
+                        </div>
+                    </div>
+                    <!-- 屬性判定區 -->
+                    <div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                        <div class="flex items-center gap-2 mb-1 flex-wrap">
+                            <span class="font-bold text-slate-600 text-xs">🔍 標的屬性</span>
+                            <span class="font-bold text-blue-700">${assetAttr.type}</span>
+                        </div>
+                        <p class="text-slate-500 text-xs leading-relaxed">${assetAttr.strategy}</p>
+                    </div>
+                    <!-- 中長期持有信心指數 -->
+                    <div class="mb-3 p-3 bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-xl">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold text-slate-600">📊 中長期持有信心指數</span>
+                            <span class="text-xs font-bold ${holdInfo.color}">${holdInfo.score.toFixed(1)} / 5.0</span>
+                        </div>
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <span class="text-lg tracking-wide ${holdInfo.color}">${holdInfo.stars}</span>
+                            <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${holdInfo.color} bg-slate-100">${holdInfo.label}</span>
+                        </div>
+                        <p class="text-xs text-slate-500 leading-relaxed">${assetAttr.holdReason}</p>
+                        <div class="mt-1.5 w-full bg-slate-200 rounded-full h-1.5">
+                            <div class="h-1.5 rounded-full transition-all ${holdInfo.barColor}"
+                                 style="width: ${holdInfo.barWidth}%"></div>
+                        </div>
+                    </div>
+                    <!-- 技術指標區 -->
+                    <div class="mb-2 text-sm"><span class="font-bold bg-slate-200 px-2 rounded">布林</span> ${bb_status}</div>
+                    <div class="mb-2 text-sm"><span class="font-bold bg-slate-200 px-2 rounded">MACD</span> ${macd_status}</div>
+                    <div class="mb-3 text-sm"><span class="font-bold bg-slate-200 px-2 rounded">RSI</span> ${rsi_status}</div>
+                    <!-- 綜合建議 -->
+                    <div class="p-3 rounded-xl text-sm font-bold border ${recColor}">${rec}</div>
+                `;
+                
+                drawCharts(finalTicker, dates.slice(-70), closes.slice(-70), sma20.slice(-70), upper.slice(-70), lower.slice(-70), macd.slice(-70), signal.slice(-70), hist.slice(-70));
+
+            } catch (error) {
+                document.getElementById('singleResult').innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg">❌ ${error.message}</div>`;
+            } finally {
+                document.getElementById('singleLoading').classList.add('hidden');
+                document.getElementById('singleResult').classList.remove('hidden');
+            }
+        }
+
+        function drawCharts(ticker, dates, prices, sma, upper, lower, macd, signal, hist) {
+            if(priceChartInstance) priceChartInstance.destroy();
+            if(macdChartInstance) macdChartInstance.destroy();
+            Chart.defaults.font.family = "'Microsoft JhengHei', sans-serif";
+
+            priceChartInstance = new Chart(document.getElementById('priceChart').getContext('2d'), {
+                type: 'line', data: { labels: dates, datasets: [
+                    { label: '收盤價', data: prices, borderColor: '#0f172a', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                    { label: '20MA', data: sma, borderColor: '#3b82f6', borderWidth: 1, borderDash: [5, 5], pointRadius: 0 },
+                    { label: '上軌', data: upper, borderColor: '#ef4444', borderWidth: 1, borderDash: [2, 2], pointRadius: 0 },
+                    { label: '下軌', data: lower, borderColor: '#22c55e', borderWidth: 1, borderDash: [2, 2], pointRadius: 0, fill: '-1', backgroundColor: 'rgba(241, 245, 249, 0.5)' }
+                ]},
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: {boxWidth:10, font:{size:11}} } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } }
+            });
+
+            const histColors = hist.map(v => v > 0 ? 'rgba(239, 68, 68, 0.7)' : 'rgba(34, 197, 94, 0.7)');
+            macdChartInstance = new Chart(document.getElementById('macdChart').getContext('2d'), {
+                type: 'bar', data: { labels: dates, datasets: [
+                    { type: 'line', label: 'MACD', data: macd, borderColor: '#3b82f6', borderWidth: 1.5, pointRadius: 0 },
+                    { type: 'line', label: 'Signal', data: signal, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0 },
+                    { type: 'bar', label: '柱狀圖', data: hist, backgroundColor: histColors }
+                ]},
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } }
+            });
+        }
+
+        // ==================== Modal 控制 ====================
+        let modalPriceChart = null;
+        let modalMacdChart = null;
+
+        function openDetailModal(stockId, stockName, stockType) {
+            const modal = document.getElementById('detailModal');
+            // 設定標題
+            document.getElementById('modalTitle').textContent = `${stockName}　${stockId}`;
+            const typeLabels = { market:'市值型', dividend:'高股息型', thematic:'科技主題型', active:'主動管理型', leveraged:'槓桿型' };
+            const dotColors  = { market:'bg-blue-400', dividend:'bg-green-400', thematic:'bg-purple-400', active:'bg-orange-400', leveraged:'bg-red-400' };
+            document.getElementById('modalSubtitle').textContent = typeLabels[stockType] || stockType;
+            const dot = document.getElementById('modalCategoryDot');
+            dot.className = `w-3 h-3 rounded-full ${dotColors[stockType] || 'bg-slate-400'}`;
+
+            // 重置狀態
+            document.getElementById('modalLoading').classList.remove('hidden');
+            document.getElementById('modalContent').classList.add('hidden');
+            document.getElementById('modalError').classList.add('hidden');
+            document.getElementById('modalNewBanner').classList.add('hidden');
+            document.getElementById('modalProxyStatus').textContent = '建立連線中';
+
+            // 銷毀舊圖表
+            if (modalPriceChart) { modalPriceChart.destroy(); modalPriceChart = null; }
+            if (modalMacdChart)  { modalMacdChart.destroy();  modalMacdChart = null; }
+
+            // 開啟 modal
+            modal.classList.remove('modal-closed');
+            modal.classList.add('modal-open');
+            document.body.style.overflow = 'hidden';
+
+            // 非同步載入資料
+            loadModalData(stockId, stockName, stockType);
+        }
+
+        function closeDetailModal() {
+            const modal = document.getElementById('detailModal');
+            modal.classList.remove('modal-open');
+            modal.classList.add('modal-closed');
+            document.body.style.overflow = '';
+        }
+
+        // 點擊背景關閉
+        document.getElementById('detailModal').addEventListener('click', function(e) {
+            if (e.target === this) closeDetailModal();
+        });
+        // ESC 關閉
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeDetailModal();
+        });
+
+        async function loadModalData(stockId, stockName, stockType) {
+            const statusEl = document.getElementById('modalProxyStatus');
+            try {
+                let closes = null, dataSource = '';
+
+                // TWSE 官方 API → TPEX → Yahoo proxy
+                statusEl.textContent = '嘗試 TWSE 官方 API...';
+                const official = await fetchStockData(stockId, true);
+                if (official) {
+                    closes = official.closes;
+                    dataSource = official.source;
+                } else {
+                    statusEl.textContent = '嘗試備援節點...';
+                    for (const sfx of ['.TW', '.TWO']) {
+                        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stockId}${sfx}?range=6mo&interval=1d`;
+                        const raw = await fetchWithFallback(url, true);
+                        if (raw && raw.chart && raw.chart.result) {
+                            const rawC = raw.chart.result[0].indicators.quote[0].close;
+                            closes = []; let lv = 0;
+                            for (const c of rawC) { if (c !== null) lv = c; closes.push(c !== null ? c : lv); }
+                            dataSource = 'Yahoo';
+                            break;
+                        }
+                    }
+                }
+
+                if (!closes || closes.length < 5) throw new Error('無法取得資料，請稍後再試。');
+
+                const len = closes.length;
+                const dates = Array.from({length: len}, (_, i) => String(i + 1));
+
+                // 計算指標
+                const sma20 = calculateSMA(closes, 20);
+                const std20 = calculateSTD(closes, 20, sma20);
+                let upper = [], lower = [], bw = [];
+                for (let i = 0; i < len; i++) {
+                    if (sma20[i] !== null) {
+                        upper.push(sma20[i] + std20[i] * 2);
+                        lower.push(sma20[i] - std20[i] * 2);
+                        bw.push((upper[i] - lower[i]) / sma20[i]);
+                    } else { upper.push(null); lower.push(null); bw.push(null); }
+                }
+                const bwSma = calculateSMA(bw, 20);
+                const ema12 = calculateEMA(closes, 12);
+                const ema26 = calculateEMA(closes, 26);
+                let macd = []; for (let i = 0; i < len; i++) macd.push(ema12[i] !== null && ema26[i] !== null ? ema12[i] - ema26[i] : null);
+                const signal = calculateEMA(macd, 9);
+                let hist = []; for (let i = 0; i < len; i++) hist.push(macd[i] !== null && signal[i] !== null ? macd[i] - signal[i] : null);
+                const rsi14 = calculateRSI(closes, 14);
+
+                const latest = { close: closes[len-1], upper: upper[len-1], lower: lower[len-1], bw: bw[len-1], bw_sma: bwSma[len-1], macd: macd[len-1], hist: hist[len-1], rsi: rsi14[len-1] };
+                const prev   = { close: closes[len-2], upper: upper[len-2], hist: hist[len-2], rsi: rsi14[len-2] };
+                const isNewListing = len < 35;
+                const hasBB = len >= 20 && latest.upper !== null;
+                const latestHist = latest.hist, prevHist = prev.hist;
+
+                // 屬性判定（複用 analyzeAssetAttribute）
+                const mockTicker = stockId + '.TW';
+                const assetAttr = analyzeAssetAttribute(mockTicker, bw);
+
+                // 布林狀態
+                let bbText = !hasBB ? '資料不足' :
+                    latest.close > latest.upper ? '🔴 突破上軌' :
+                    latest.close < latest.lower ? '🟢 跌破下軌' :
+                    (latest.bw < latest.bw_sma) ? '🟡 通道收斂' : '⚪ 通道內震盪';
+
+                // MACD 狀態
+                let macdText = (latestHist === null || prevHist === null) ? '資料不足' :
+                    (prevHist <= 0 && latestHist > 0) ? '🔥 黃金交叉' :
+                    (prevHist >= 0 && latestHist < 0) ? '🧊 死亡交叉' :
+                    (latestHist > 0 && latestHist > prevHist) ? '📈 動能擴張' :
+                    (latestHist > 0) ? '⚠️ 動能衰退' : '📉 空頭格局';
+
+                // RSI 狀態
+                const rsiVal = latest.rsi;
+                let rsiText = rsiVal === null ? '資料不足' :
+                    rsiVal >= 70 ? `🔴 超買 ${rsiVal.toFixed(1)}` :
+                    rsiVal <= 30 ? `🟢 超賣 ${rsiVal.toFixed(1)}` :
+                    rsiVal >= 50 ? `多頭區間 ${rsiVal.toFixed(1)}` : `空頭區間 ${rsiVal.toFixed(1)}`; 
+
+                // 建議（複用與單檔相同的類別邏輯，簡化版）
+                let rec = '', recColor = 'bg-slate-100 text-slate-700 border-slate-200';
+                const cat = assetAttr.cat || 'general';
+                const rsiOversold   = rsiVal !== null && rsiVal <= 35;
+                const rsiOverbought = rsiVal !== null && rsiVal >= 72;
+                const rsiHealthy    = rsiVal !== null && rsiVal > 45 && rsiVal < 72;
+                const isGoldenX     = prevHist !== null && latestHist !== null && prevHist <= 0 && latestHist > 0;
+                const isDeadX       = prevHist !== null && latestHist !== null && prevHist >= 0 && latestHist < 0;
+                const macdExpanding = latestHist !== null && prevHist !== null && latestHist > 0 && latestHist > prevHist;
+                const aboveUpper    = latest.upper !== null && latest.close > latest.upper;
+                const belowLower    = latest.lower !== null && latest.close < latest.lower;
+
+                if (isNewListing) {
+                    const e5 = calculateEMA(closes, 5)[len-1], e10 = calculateEMA(closes, 10)[len-1];
+                    rec = e5 > e10 ? '短線偏多，EMA5 站上 EMA10，但新掛牌波動大宜謹慎。' : '短線偏弱，EMA5 跌破 EMA10，建議觀望。';
+                    recColor = e5 > e10 ? 'bg-blue-50 text-blue-800 border-blue-300' : 'bg-slate-100 text-slate-700 border-slate-300';
+                } else if (!hasBB) {
+                    rec = '資料累積中，暫無建議。';
+                } else if (['dividend', 'finance'].includes(cat)) {
+                    if (belowLower && rsiOversold)       { rec = '💎 強力低接訊號：跌破下軌 + RSI 超賣雙確認，最佳加碼時機。'; recColor = 'bg-purple-50 text-purple-800 border-purple-300'; }
+                    else if (belowLower)                  { rec = '💎 超跌低接佳機：跌破布林下軌，適合分批建倉。'; recColor = 'bg-purple-50 text-purple-800 border-purple-200'; }
+                    else if (rsiOversold)                 { rec = '🟢 RSI 超賣：短線超跌，可開始小量佈局。'; recColor = 'bg-green-50 text-green-800 border-green-300'; }
+                    else if (aboveUpper || rsiOverbought) { rec = '⚠️ 追高風險：上軌或 RSI 超買，此類標的不宜追高。'; recColor = 'bg-yellow-50 text-yellow-800 border-yellow-300'; }
+                    else                                  { rec = '☕ 維持存股紀律：正常區間，定期定額持續執行。'; }
+                } else if (cat === 'market') {
+                    if (aboveUpper && macdExpanding && rsiHealthy) { rec = '🚀 趨勢突破三重確認：難得買點，可佈局。'; recColor = 'bg-red-50 text-red-800 border-red-300'; }
+                    else if (aboveUpper && rsiOverbought)           { rec = '⚠️ 突破但過熱：等 RSI 降至 60 以下再進場。'; recColor = 'bg-yellow-50 text-yellow-800 border-yellow-300'; }
+                    else if (isGoldenX && rsiHealthy)               { rec = '🔥 MACD 金叉確認：可分批建立多頭部位。'; recColor = 'bg-orange-50 text-orange-800 border-orange-300'; }
+                    else if (isDeadX)                               { rec = '🛑 趨勢轉弱：等待趨勢明朗後再行動。'; recColor = 'bg-slate-100 text-slate-600 border-slate-300'; }
+                    else { rec = latestHist > 0 ? '🛡️ 多頭格局持有，避免頻繁進出。' : '☕ 盤整觀望，等待方向明確。'; }
+                } else if (cat === 'leveraged') {
+                    if (aboveUpper && macdExpanding && rsiHealthy) { rec = '⚡ 槓桿進場訊號：可小量進場，停損設 -5%。'; recColor = 'bg-red-50 text-red-800 border-red-300'; }
+                    else if (isDeadX)                              { rec = '🛑 槓桿立即出場！MACD 死叉，跌幅倍增，即刻止損。'; recColor = 'bg-red-100 text-red-900 border-red-400'; }
+                    else if (belowLower)                           { rec = '🚫 槓桿不宜低接：趨勢向下加速，切勿接刀。'; recColor = 'bg-red-50 text-red-800 border-red-300'; }
+                    else { rec = latestHist > 0 ? '🛡️ 多頭持守，緊盯 MACD 死叉訊號。' : '☕ 空手等待明確突破訊號。'; }
+                } else if (cat === 'blue_chip') {
+                    if (aboveUpper && isGoldenX && rsiHealthy)    { rec = '🚀 主升段確認：大型權值股強訊號，可積極布局。'; recColor = 'bg-red-50 text-red-800 border-red-300'; }
+                    else if (rsiOverbought && aboveUpper)          { rec = '💰 減碼時機：RSI 超買 + 上軌，可先減碼 30~50%。'; recColor = 'bg-blue-50 text-blue-800 border-blue-300'; }
+                    else if (isDeadX)                              { rec = '🛑 死叉出場：趨勢轉向，等待下次金叉訊號。'; recColor = 'bg-slate-100 text-slate-600 border-slate-300'; }
+                    else if (belowLower && rsiOversold)            { rec = '🟢 超跌反彈：跌破下軌 + RSI 超賣，可分批低接。'; recColor = 'bg-green-50 text-green-800 border-green-300'; }
+                    else { rec = latestHist > 0 ? '🛡️ 多頭格局，沿 20MA 持有。' : '☕ 等待 MACD 金叉且 RSI 站上 50。'; }
+                } else {
+                    if (aboveUpper && (isGoldenX || macdExpanding) && !rsiOverbought) { rec = '🚀 強勢買進：突破 + 動能確認，可進場。'; recColor = 'bg-red-50 text-red-800 border-red-300'; }
+                    else if (aboveUpper && rsiOverbought)                               { rec = '⚠️ RSI 過熱：等 RSI 回落至 60 以下再追。'; recColor = 'bg-yellow-50 text-yellow-800 border-yellow-300'; }
+                    else if (isDeadX || belowLower)                                     { rec = '🛑 趨勢轉弱：執行停損，觀望等待訊號。'; recColor = 'bg-green-50 text-green-800 border-green-300'; }
+                    else { rec = latestHist > 0 ? '🛡️ 多頭持有，等待下波突破機會。' : '☕ 暫不介入，等待動能回升。'; }
+                }
+
+                // 計算持有信心指數
+                const modalHold = calcHoldScore(assetAttr.holdScore || 2.5, cat, latest, prev, rsiVal);
+                const modalCustomTag = ASSET_TAGS[stockId] || null;
+
+                // 填入 UI
+                document.getElementById('modalPrice').textContent = `$${latest.close.toFixed(2)}`;
+                document.getElementById('modalDataInfo').textContent = `${len} 筆｜來源: ${dataSource}`;
+                document.getElementById('modalBB').innerHTML = bbText;
+                document.getElementById('modalMACD').innerHTML = macdText + `<span class="block text-xs font-normal text-slate-400 mt-1">RSI：${rsiText}</span>`;
+                document.getElementById('modalRec').textContent = rec;
+                const recBox = document.getElementById('modalRecBox');
+                recBox.className = `rounded-xl p-3 border ${recColor}`;
+
+                // 屬性區：加入細化標籤
+                const tagHtml = modalCustomTag
+                    ? `<span class="inline-block text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 ml-1">${modalCustomTag.badge}</span>
+                       <div class="text-xs text-slate-400 mt-0.5">${modalCustomTag.tag}</div>`
+                    : '';
+                document.getElementById('modalAttrType').innerHTML = assetAttr.type + tagHtml;
+                document.getElementById('modalAttrStrategy').textContent = assetAttr.strategy;
+
+                // 持有信心指數：插入到屬性區下方（若元素不存在則建立）
+                let holdEl = document.getElementById('modalHoldScore');
+                if (!holdEl) {
+                    holdEl = document.createElement('div');
+                    holdEl.id = 'modalHoldScore';
+                    holdEl.className = 'mt-3 pt-3 border-t border-slate-200';
+                    document.getElementById('modalAttrStrategy').parentElement.appendChild(holdEl);
+                }
+                holdEl.innerHTML = `
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold text-slate-600">📊 中長期持有信心指數</span>
+                        <span class="text-xs font-bold ${modalHold.color}">${modalHold.score.toFixed(1)} / 5.0</span>
+                    </div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-base ${modalHold.color}">${modalHold.stars}</span>
+                        <span class="text-xs font-semibold ${modalHold.color}">${modalHold.label}</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-1.5 mb-1">
+                        <div class="h-1.5 rounded-full ${modalHold.barColor}" style="width:${modalHold.barWidth}%"></div>
+                    </div>
+                    <p class="text-xs text-slate-500 leading-relaxed">${assetAttr.holdReason || ''}</p>
+                `;
+
+                if (isNewListing) {
+                    const banner = document.getElementById('modalNewBanner');
+                    banner.textContent = `⚠️ 新掛牌標的：歷史資料僅 ${len} 天，技術指標僅供參考。`;
+                    banner.classList.remove('hidden');
+                }
+
+                // 顯示內容
+                document.getElementById('modalLoading').classList.add('hidden');
+                document.getElementById('modalContent').classList.remove('hidden');
+
+                // 繪製圖表
+                Chart.defaults.font.family = "'Microsoft JhengHei', sans-serif";
+                const sl = -70;
+                const d = dates.slice(sl), p = closes.slice(sl), s = sma20.slice(sl), u = upper.slice(sl), lo = lower.slice(sl);
+                const md = macd.slice(sl), sg = signal.slice(sl), hs = hist.slice(sl);
+
+                modalPriceChart = new Chart(document.getElementById('modalPriceChart').getContext('2d'), {
+                    type: 'line', data: { labels: d, datasets: [
+                        { label: '收盤價', data: p,  borderColor: '#0f172a', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                        { label: '20MA',  data: s,  borderColor: '#3b82f6', borderWidth: 1, borderDash: [5,5], pointRadius: 0 },
+                        { label: '上軌',  data: u,  borderColor: '#ef4444', borderWidth: 1, borderDash: [2,2], pointRadius: 0 },
+                        { label: '下軌',  data: lo, borderColor: '#22c55e', borderWidth: 1, borderDash: [2,2], pointRadius: 0, fill: '-1', backgroundColor: 'rgba(241,245,249,0.5)' }
+                    ]},
+                    options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:11}}}}, scales:{x:{ticks:{maxTicksLimit:8}}} }
+                });
+
+                const hColors = hs.map(v => v > 0 ? 'rgba(239,68,68,0.7)' : 'rgba(34,197,94,0.7)');
+                modalMacdChart = new Chart(document.getElementById('modalMacdChart').getContext('2d'), {
+                    type: 'bar', data: { labels: d, datasets: [
+                        { type:'line', label:'MACD',   data:md, borderColor:'#3b82f6', borderWidth:1.5, pointRadius:0 },
+                        { type:'line', label:'Signal', data:sg, borderColor:'#f59e0b', borderWidth:1.5, pointRadius:0 },
+                        { type:'bar',  label:'柱狀圖', data:hs, backgroundColor:hColors }
+                    ]},
+                    options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{display:false}}, scales:{x:{ticks:{maxTicksLimit:8}}} }
+                });
+
+            } catch(err) {
+                document.getElementById('modalLoading').classList.add('hidden');
+                document.getElementById('modalError').textContent = '❌ ' + err.message;
+                document.getElementById('modalError').classList.remove('hidden');
+            }
+        }
+
+
+        // ==================== 計算單檔技術指標摘要 ====================
+        function calcIndicators(closes) {
+            const len = closes.length;
+            if (len < 20) return null;
+            const sma20 = calculateSMA(closes, 20);
+            const std20 = calculateSTD(closes, 20, sma20);
+            let upper = [], lower = [], bw = [];
+            for (let j = 0; j < len; j++) {
+                if (sma20[j] !== null) {
+                    upper.push(sma20[j] + std20[j] * 2);
+                    lower.push(sma20[j] - std20[j] * 2);
+                    bw.push((upper[j] - lower[j]) / sma20[j]);
+                } else { upper.push(null); lower.push(null); bw.push(null); }
+            }
+            const bwSma = calculateSMA(bw, 20);
+            const ema12 = calculateEMA(closes, 12);
+            const ema26 = calculateEMA(closes, 26);
+            let macd = [], signal2, hist = [];
+            for (let j = 0; j < len; j++) macd.push(ema12[j] !== null && ema26[j] !== null ? ema12[j] - ema26[j] : null);
+            signal2 = calculateEMA(macd, 9);
+            for (let j = 0; j < len; j++) hist.push(macd[j] !== null && signal2[j] !== null ? macd[j] - signal2[j] : null);
+
+            const rsi14 = calculateRSI(closes, 14);
+            const latest = { close: closes[len-1], upper: upper[len-1], lower: lower[len-1], bw: bw[len-1], bw_sma: bwSma[len-1], hist: hist[len-1], macd: macd[len-1], rsi: rsi14[len-1] };
+            const prev   = { hist: hist[len-2], close: closes[len-2], rsi: rsi14[len-2] };
+            return { latest, prev, len };
+        }
+
+        // ==================== 產生訊號標籤（依類別套用不同邏輯）====================
+        function getSignalBadge(ind, assetType) {
+            if (!ind) return { label: '資料不足', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '⏳', score: 0 };
+            const { latest, prev } = ind;
+            const h = latest.hist, ph = prev.hist;
+            const rsi = latest.rsi;
+            const isGC = ph !== null && h !== null && ph <= 0 && h > 0;
+            const isDC = ph !== null && h !== null && ph >= 0 && h < 0;
+            const expanding = h !== null && ph !== null && h > 0 && h > ph;
+            const aboveUpper = latest.upper !== null && latest.close > latest.upper;
+            const belowLower = latest.lower !== null && latest.close < latest.lower;
+            const squeeze = latest.bw !== null && latest.bw_sma !== null && latest.bw < latest.bw_sma;
+            const rsiOversold = rsi !== null && rsi <= 35;
+            const rsiOverbought = rsi !== null && rsi >= 72;
+            const rsiHealthy = rsi !== null && rsi > 45 && rsi < 72;
+
+            // ── 高股息型：均值回歸邏輯 ──
+            if (assetType === 'dividend') {
+                if (belowLower && rsiOversold)
+                    return { label: '強力低接', color: 'bg-purple-100 text-purple-700 border-purple-300', icon: '💎', score: 6 };
+                if (belowLower)
+                    return { label: '超跌佈局', color: 'bg-purple-100 text-purple-700 border-purple-300', icon: '💎', score: 4 };
+                if (rsiOversold && isGC)
+                    return { label: 'RSI超賣+金叉', color: 'bg-green-100 text-green-700 border-green-300', icon: '🟢', score: 4 };
+                if (aboveUpper || rsiOverbought)
+                    return { label: '追高風險', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: '⚠️', score: 1 };
+                if (h !== null && h > 0)
+                    return { label: '正常持有', color: 'bg-green-100 text-green-700 border-green-300', icon: '🛡️', score: 2 };
+                return { label: '區間觀望', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '☕', score: 1 };
+            }
+
+            // ── 市值型：趨勢確認，過濾假突破 ──
+            if (assetType === 'market') {
+                if (aboveUpper && expanding && rsiHealthy)
+                    return { label: '趨勢突破', color: 'bg-red-100 text-red-700 border-red-300', icon: '🚀', score: 5 };
+                if (aboveUpper && rsiOverbought)
+                    return { label: 'RSI超買慎追', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: '⚠️', score: 2 };
+                if (isGC && rsiHealthy)
+                    return { label: '金叉確認', color: 'bg-orange-100 text-orange-700 border-orange-300', icon: '🔥', score: 4 };
+                if (isDC)
+                    return { label: '死亡交叉', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '🧊', score: 1 };
+                if (h !== null && h > 0)
+                    return { label: '多頭持有', color: 'bg-green-100 text-green-700 border-green-300', icon: '🛡️', score: 2 };
+                return { label: '盤整觀望', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '☕', score: 1 };
+            }
+
+            // ── 槓桿型：嚴格多重確認 ──
+            if (assetType === 'leveraged') {
+                if (aboveUpper && expanding && rsiHealthy)
+                    return { label: '槓桿強進場', color: 'bg-red-100 text-red-700 border-red-300', icon: '⚡', score: 5 };
+                if (aboveUpper && rsiOverbought)
+                    return { label: '槓桿過熱！', color: 'bg-orange-100 text-orange-700 border-orange-300', icon: '🔥', score: 2 };
+                if (isDC)
+                    return { label: '立即出場！', color: 'bg-red-200 text-red-800 border-red-400', icon: '🛑', score: 0 };
+                if (h !== null && h > 0 && rsiHealthy)
+                    return { label: '多頭持守', color: 'bg-green-100 text-green-700 border-green-300', icon: '🛡️', score: 2 };
+                return { label: '空手等待', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '☕', score: 1 };
+            }
+
+            // ── 科技主題 / 主動型：動能突破邏輯 ──
+            if (aboveUpper && (isGC || expanding) && !rsiOverbought)
+                return { label: '強勢突破', color: 'bg-red-100 text-red-700 border-red-300', icon: '🚀', score: 5 };
+            if (aboveUpper && rsiOverbought)
+                return { label: 'RSI過熱等回', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: '⚠️', score: 2 };
+            if (isGC && !aboveUpper && !belowLower)
+                return { label: '黃金交叉', color: 'bg-orange-100 text-orange-700 border-orange-300', icon: '🔥', score: 4 };
+            if (squeeze && isGC)
+                return { label: '收斂金叉', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: '🟡', score: 4 };
+            if (expanding && rsiHealthy)
+                return { label: '動能擴張', color: 'bg-blue-100 text-blue-700 border-blue-300', icon: '📈', score: 3 };
+            if (isDC)
+                return { label: '死亡交叉', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '🧊', score: 1 };
+            if (h !== null && h > 0)
+                return { label: '多頭續抱', color: 'bg-green-100 text-green-700 border-green-300', icon: '🛡️', score: 2 };
+            return { label: '弱勢觀望', color: 'bg-slate-100 text-slate-500 border-slate-200', icon: '☕', score: 1 };
+        }
+
+        // ==================== 主掃描函數 ====================
+        async function startScan() {
+            const btn = document.getElementById('scanBtn');
+            const statusArea = document.getElementById('scanStatusArea');
+            const log = document.getElementById('scanLog');
+            const pBar = document.getElementById('progressBar');
+            const pText = document.getElementById('scanPercent');
+            const resultsArea = document.getElementById('resultsArea');
+
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner"></div> 掃描中...';
+            btn.classList.add('opacity-50');
+            statusArea.classList.remove('hidden');
+            resultsArea.classList.add('hidden');
+            resultsArea.innerHTML = '';
+
+            const total = ETF_WATCHLIST.length;
+            // 儲存每檔結果
+            const scanResults = {};
+            ETF_WATCHLIST.forEach(a => { scanResults[a.id] = { asset: a, ind: null, error: false }; });
+
+            for (let i = 0; i < total; i++) {
+                const asset = ETF_WATCHLIST[i];
+                const pct = Math.round(((i + 1) / total) * 100);
+                pBar.style.width = pct + '%';
+                pText.innerText = pct + '%';
+                log.innerText = `[${i+1}/${total}] 正在讀取：${asset.name} (${asset.id})`;
+                log.classList.add('scanning-pulse');
+
+                try {
+                    let closes = null;
+                    // ① TWSE 官方 API（主要）
+                    const official = await fetchStockData(asset.id, true);
+                    if (official) {
+                        closes = official.closes;
+                    } else {
+                        // ② Yahoo proxy（備援）
+                        for (const sfx of ['.TW', '.TWO']) {
+                            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${asset.id}${sfx}?range=6mo&interval=1d`;
+                            const data = await fetchWithFallback(url, true);
+                            if (data && data.chart && data.chart.result) {
+                                const raw = data.chart.result[0].indicators.quote[0].close;
+                                closes = []; let lv = 0;
+                                for (const c of raw) { if (c !== null) lv = c; closes.push(c !== null ? c : lv); }
+                                break;
+                            }
+                        }
+                    }
+                    if (closes && closes.length >= 20) {
+                        scanResults[asset.id].ind = calcIndicators(closes);
+                    }
+                } catch(e) {
+                    scanResults[asset.id].error = true;
+                }
+
+                await new Promise(r => setTimeout(r, 120));
+            }
+
+            // 完成進度
+            pBar.style.width = '100%';
+            pText.innerText = '100%';
+            log.innerText = '掃描完成，整理結果中...';
+            log.classList.remove('scanning-pulse');
+
+            await new Promise(r => setTimeout(r, 400));
+            statusArea.classList.add('hidden');
+
+            // ── 按類別渲染結果 ──
+            const colorMap = {
+                blue:   { hdr: 'bg-blue-600',   badge: 'bg-blue-50 border-blue-200',   text: 'text-blue-700'   },
+                green:  { hdr: 'bg-green-600',  badge: 'bg-green-50 border-green-200', text: 'text-green-700'  },
+                purple: { hdr: 'bg-purple-600', badge: 'bg-purple-50 border-purple-200',text: 'text-purple-700'},
+                orange: { hdr: 'bg-orange-500', badge: 'bg-orange-50 border-orange-200',text: 'text-orange-700'},
+                red:    { hdr: 'bg-red-600',    badge: 'bg-red-50 border-red-200',     text: 'text-red-700'    }
+            };
+
+            ETF_CATEGORIES.forEach(cat => {
+                const items = ETF_WATCHLIST.filter(a => a.type === cat.key);
+                const cm = colorMap[cat.color];
+
+                // 計算訊號並排序（分數高的優先）
+                const ranked = items.map(asset => {
+                    const r = scanResults[asset.id];
+                    const badge = getSignalBadge(r.ind, asset.type);
+                    return { asset, ind: r.ind, badge };
+                }).sort((a, b) => b.badge.score - a.badge.score);
+
+                // 類別標題
+                const section = document.createElement('div');
+                section.className = 'bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden';
+                section.innerHTML = `
+                    <div class="${cm.hdr} text-white px-5 py-3 flex items-center justify-between">
+                        <h3 class="text-base font-bold flex items-center gap-2">
+                            <span>${cat.icon}</span> ${cat.label}
+                            <span class="text-xs font-normal opacity-75">前 5 檔　資料來源：TWSE 官方 API</span>
+                        </h3>
+                        <span class="text-xs opacity-80">訊號強度由高到低</span>
+                    </div>
+                    <div class="divide-y divide-slate-100" id="cat-${cat.key}"></div>
+                `;
+                resultsArea.appendChild(section);
+                const rowContainer = section.querySelector(`#cat-${cat.key}`);
+
+                ranked.slice(0, 5).forEach((item, rank) => {
+                    const { asset, ind, badge } = item;
+                    const close = ind ? `$${ind.latest.close.toFixed(2)}` : '---';
+
+                    // 布林、MACD 狀態文字
+                    const bbText = ind && ind.latest.upper !== null
+                        ? (ind.latest.close > ind.latest.upper ? '<span class="text-red-600 font-bold">突破上軌</span>' :
+                           ind.latest.close < ind.latest.lower ? '<span class="text-green-600 font-bold">跌破下軌</span>' :
+                           (ind.latest.bw < ind.latest.bw_sma ? '<span class="text-yellow-600 font-bold">通道收斂</span>' : '通道內震盪'))
+                        : '<span class="text-slate-400">計算中</span>';
+                    const macdText = ind && ind.latest.hist !== null
+                        ? (ind.latest.hist > 0 ? '<span class="text-red-500">紅柱</span>' : '<span class="text-green-600">綠柱</span>')
+                        : '<span class="text-slate-400">計算中</span>';
+                    const rsiVal = ind ? ind.latest.rsi : null;
+                    const rsiText = rsiVal !== null
+                        ? (rsiVal >= 70 ? `<span class="text-red-500">${rsiVal.toFixed(0)}</span>` :
+                           rsiVal <= 35 ? `<span class="text-green-600">${rsiVal.toFixed(0)}</span>` :
+                           `<span class="text-slate-500">${rsiVal.toFixed(0)}</span>`)
+                        : '<span class="text-slate-400">--</span>';
+
+                    // 細化屬性標籤
+                    const customTag = ASSET_TAGS[asset.id];
+                    const tagBadgeHtml = customTag
+                        ? `<span class="text-xs font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200">${customTag.badge}</span>`
+                        : '';
+                    const tagDescHtml = customTag
+                        ? `<span class="text-slate-400">${customTag.tag}</span>`
+                        : '';
+
+                    // 中長期持有信心指數
+                    const strategy = STRATEGY_DESC[asset.type] || STRATEGY_DESC['general'];
+                    const holdInfo = ind
+                        ? calcHoldScore(strategy.holdScore || 2.5, asset.type, ind.latest, ind.prev, rsiVal)
+                        : { score: strategy.holdScore || 2.5, stars: '★'.repeat(Math.round(strategy.holdScore || 2.5)) + '☆'.repeat(5 - Math.round(strategy.holdScore || 2.5)), label: '---', color: 'text-slate-400', barColor: 'bg-slate-300', barWidth: (strategy.holdScore || 2.5) / 5 * 100 };
+
+                    const holdColorDot = holdInfo.score >= 4 ? 'bg-green-500' : holdInfo.score >= 3 ? 'bg-blue-500' : holdInfo.score >= 2 ? 'bg-yellow-500' : 'bg-red-500';
+
+                    const row = document.createElement('div');
+                    row.className = 'flex items-start gap-3 px-4 py-3 hover:bg-blue-50 transition cursor-pointer group border-b border-slate-50 last:border-0';
+                    row.title = `點擊查看 ${asset.name} 完整技術分析`;
+                    row.onclick = () => openDetailModal(asset.id, asset.name, asset.type);
+                    row.innerHTML = `
+                        <!-- 排名圓點 -->
+                        <div class="w-6 h-6 rounded-full ${cm.hdr} text-white text-xs font-black flex items-center justify-center flex-shrink-0 mt-0.5">${rank + 1}</div>
+
+                        <!-- 主要資訊 -->
+                        <div class="flex-1 min-w-0">
+                            <!-- 第一行：名稱 + 代碼 + 自定義標籤 -->
+                            <div class="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                <span class="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition">${asset.name}</span>
+                                <span class="text-xs text-slate-400 font-mono">${asset.id}</span>
+                                ${tagBadgeHtml}
+                            </div>
+                            <!-- 第二行：細化屬性描述 -->
+                            <div class="text-xs mb-1.5 flex gap-2 flex-wrap">
+                                ${tagDescHtml}
+                            </div>
+                            <!-- 第三行：技術指標摘要 -->
+                            <div class="text-xs text-slate-500 flex gap-3 flex-wrap">
+                                <span>布林：${bbText}</span>
+                                <span>MACD：${macdText}</span>
+                                <span>RSI：${rsiText}</span>
+                            </div>
+                            <!-- 第四行：中長期信心指數 -->
+                            <div class="mt-1.5 flex items-center gap-2">
+                                <div class="flex-1 bg-slate-100 rounded-full h-1.5 max-w-24">
+                                    <div class="h-1.5 rounded-full ${holdColorDot}" style="width:${holdInfo.barWidth}%"></div>
+                                </div>
+                                <span class="text-xs ${holdInfo.color} font-semibold whitespace-nowrap">${holdInfo.score.toFixed(1)}★ ${holdInfo.label}</span>
+                            </div>
+                        </div>
+
+                        <!-- 右側：價格 + 訊號 + 箭頭 -->
+                        <div class="text-right flex-shrink-0 flex items-center gap-2">
+                            <div>
+                                <div class="font-bold text-slate-800 text-sm">${close}</div>
+                                <span class="inline-block mt-1 text-xs font-bold px-2 py-0.5 rounded border ${badge.color}">${badge.icon} ${badge.label}</span>
+                            </div>
+                            <svg class="w-4 h-4 text-slate-300 group-hover:text-blue-400 transition flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </div>
+                    `;
+                    rowContainer.appendChild(row);
+                });
+            });
+
+            resultsArea.classList.remove('hidden');
+            btn.disabled = false;
+            btn.innerHTML = '🔄 重新掃描';
+            btn.classList.remove('opacity-50');
+        }
+
+        // ==================== 中長期持有篩選器 ====================
+
+        // ==================== 候補觀察名單（新掛牌 ETF，資料累積中）====================
+        const WATCHLIST_CANDIDATES = [
+            // 格式：{ id, name, cat, listedDate, strategy, reason }
+            // listedDate: 掛牌日期（ISO 格式，用於計算上市天數）
+            { id: '00403A', name: '統一台灣優選50',  cat: 'active',
+              listedDate: '2026-04-28',
+              strategy: '50+150 珍珠策略：以市值前50大為防禦基底，主動從51~200名挖掘潛力飆股',
+              reason: '首日大舉建倉台積電(13.49%)與聯電，換股彈性高，但周轉率成本需觀察。屬主動管理型 ETF，適合偏好積極選股策略的中長期投資人。' },
+            // ── 可在此繼續新增未來上市的 ETF ──
+            // { id: 'XXXXX', name: '...', cat: 'dividend', listedDate: '2026-XX-XX', strategy: '...', reason: '...' },
+        ];
+
+        // 計算距離今天的交易日數（近似，用自然日 × 5/7）
+        function calcTradingDays(listedDateStr) {
+            const listed = new Date(listedDateStr);
+            const today = new Date();
+            const diffMs = today - listed;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            return Math.floor(diffDays * 5 / 7); // 近似交易日
+        }
+
+        // 渲染候補名單
+        async function renderWatchlistCandidates() {
+            const container = document.getElementById('watchlistCandidates');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (WATCHLIST_CANDIDATES.length === 0) {
+                container.innerHTML = '<div class="px-5 py-6 text-center text-sm text-slate-400">目前無候補標的</div>';
+                return;
+            }
+
+            for (const c of WATCHLIST_CANDIDATES) {
+                const tradingDays = calcTradingDays(c.listedDate);
+                const needed = 60;
+                const progress = Math.min(100, Math.round(tradingDays / needed * 100));
+                const remaining = Math.max(0, needed - tradingDays);
+                const catLabel = (STRATEGY_DESC[c.cat] || STRATEGY_DESC['general']).name;
+                const customTag = ASSET_TAGS[c.id];
+
+                // 嘗試抓取最新收盤價
+                let latestPrice = '---';
+                let dataStr = `目前約 ${tradingDays} 個交易日`;
+                try {
+                    const official = await fetchStockData(c.id, true);
+                    if (official && official.closes.length > 0) {
+                        const p = official.closes[official.closes.length - 1];
+                        latestPrice = '$' + p.toFixed(2);
+                        dataStr = `已累積 ${official.closes.length} 筆資料`;
+                    }
+                } catch(e) {}
+
+                // 進度條顏色
+                const barColor = progress >= 80 ? 'bg-emerald-500' : progress >= 50 ? 'bg-blue-500' : 'bg-amber-500';
+                const statusLabel = remaining <= 0
+                    ? '<span class="text-emerald-600 font-bold">✅ 可升格</span>'
+                    : `<span class="text-amber-700">還需約 <strong>${remaining}</strong> 個交易日</span>`;
+
+                const tagHtml = customTag
+                    ? `<span class="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 font-bold">${customTag.badge}</span>`
+                    : `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">${catLabel}</span>`;
+
+                const row = document.createElement('div');
+                row.className = 'px-5 py-4 hover:bg-amber-50 transition cursor-pointer group';
+                row.onclick = () => openDetailModal(c.id, c.name, c.cat);
+                row.title = `點擊查看 ${c.name} 目前走勢`;
+                row.innerHTML = `
+                    <div class="flex items-start justify-between gap-3">
+                        <!-- 左側主要資訊 -->
+                        <div class="flex-1 min-w-0">
+                            <!-- 第一行：代碼 + 名稱 + 標籤 -->
+                            <div class="flex items-center gap-2 flex-wrap mb-1">
+                                <span class="font-black text-slate-800 group-hover:text-amber-700 transition">${c.id}</span>
+                                <span class="font-bold text-slate-600">${c.name}</span>
+                                ${tagHtml}
+                                <span class="text-xs text-slate-400 font-mono">掛牌 ${c.listedDate}</span>
+                            </div>
+                            <!-- 策略說明 -->
+                            <p class="text-xs text-slate-500 leading-relaxed mb-2">${c.strategy}</p>
+                            <!-- 觀察理由 -->
+                            <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 leading-relaxed mb-2">${c.reason}</p>
+                            <!-- 資料累積進度 -->
+                            <div class="flex items-center gap-2">
+                                <div class="flex-1 bg-slate-200 rounded-full h-2 max-w-40">
+                                    <div class="h-2 rounded-full ${barColor} transition-all" style="width:${progress}%"></div>
+                                </div>
+                                <span class="text-xs text-slate-500">${progress}%　${statusLabel}</span>
+                            </div>
+                            <div class="text-xs text-slate-400 mt-1">${dataStr}　目標：60 個交易日</div>
+                        </div>
+                        <!-- 右側：價格 + 箭頭 -->
+                        <div class="flex-shrink-0 text-right flex items-center gap-2">
+                            <div>
+                                <div class="font-bold text-slate-800">${latestPrice}</div>
+                                <div class="text-xs text-amber-600 mt-0.5 font-medium">觀察中</div>
+                            </div>
+                            <svg class="w-4 h-4 text-slate-300 group-hover:text-amber-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(row);
+            }
+        }
+
+        // 55 檔掃描清單（ETF 20 + 核心個股 30，排除槓桿型與傳產股）
+        const LONGTERM_UNIVERSE = [
+            // ── 高股息 ETF（基礎分 4.5）──
+            { id: '0056',   name: '元大高股息',        cat: 'dividend', etf: true  },
+            { id: '00878',  name: '國泰永續高股息',     cat: 'dividend', etf: true  },
+            { id: '00713',  name: '元大台灣高息低波',   cat: 'dividend', etf: true  },
+            { id: '00919',  name: '群益台灣精選高息',   cat: 'dividend', etf: true  },
+            { id: '00929',  name: '復華台灣科技優息',   cat: 'dividend', etf: true  },
+            // ── 市值型 ETF（基礎分 4.0）──
+            { id: '0050',   name: '元大台灣50',        cat: 'market',   etf: true  },
+            { id: '006208', name: '富邦台50',          cat: 'market',   etf: true  },
+            { id: '00692',  name: '富邦公司治理',       cat: 'market',   etf: true  },
+            { id: '00850',  name: '元大台灣ESG永續',    cat: 'market',   etf: true  },
+            { id: '00922',  name: '國泰台灣領袖50',     cat: 'market',   etf: true  },
+            // ── 科技主題 ETF（基礎分 3.0）──
+            { id: '0052',   name: '富邦科技',          cat: 'thematic', etf: true  },
+            { id: '00891',  name: '中信關鍵半導體',     cat: 'thematic', etf: true  },
+            { id: '00757',  name: '統一FANG+',         cat: 'thematic', etf: true  },
+            { id: '00662',  name: '富邦NASDAQ',        cat: 'thematic', etf: true  },
+            { id: '00881',  name: '國泰台灣5G+',       cat: 'thematic', etf: true  },
+            // ── 主動管理 ETF（基礎分 3.0）──
+            { id: '00400A', name: '主動國泰動能高息',   cat: 'active',   etf: true  },
+            { id: '00981A', name: '主動統一台股增長',   cat: 'active',   etf: true  },
+            { id: '00991A', name: '主動復華未來50',     cat: 'active',   etf: true  },
+            { id: '00992A', name: '主動群益科技創新',   cat: 'active',   etf: true  },
+            { id: '009816', name: '凱基台灣TOP50',     cat: 'active',   etf: true  },
+            // ── 大型權值個股 10 檔（基礎分 3.5）──
+            { id: '2330',   name: '台積電',   cat: 'blue_chip', etf: false },
+            { id: '2317',   name: '鴻海',     cat: 'blue_chip', etf: false },
+            { id: '2454',   name: '聯發科',   cat: 'blue_chip', etf: false },
+            { id: '2308',   name: '台達電',   cat: 'blue_chip', etf: false },
+            { id: '2382',   name: '廣達',     cat: 'blue_chip', etf: false },
+            { id: '2357',   name: '華碩',     cat: 'blue_chip', etf: false },
+            { id: '2395',   name: '研華',     cat: 'blue_chip', etf: false },
+            { id: '3045',   name: '台灣大',   cat: 'blue_chip', etf: false },
+            { id: '2412',   name: '中華電',   cat: 'blue_chip', etf: false },
+            { id: '2207',   name: '和泰車',   cat: 'blue_chip', etf: false },
+            // ── 金融個股 10 檔（基礎分 4.0）──
+            { id: '2881',   name: '富邦金',   cat: 'finance',   etf: false },
+            { id: '2882',   name: '國泰金',   cat: 'finance',   etf: false },
+            { id: '2886',   name: '兆豐金',   cat: 'finance',   etf: false },
+            { id: '5880',   name: '合庫金',   cat: 'finance',   etf: false },
+            { id: '2884',   name: '玉山金',   cat: 'finance',   etf: false },
+            { id: '2891',   name: '中信金',   cat: 'finance',   etf: false },
+            { id: '2885',   name: '元大金',   cat: 'finance',   etf: false },
+            { id: '2892',   name: '第一金',   cat: 'finance',   etf: false },
+            { id: '2890',   name: '永豐金',   cat: 'finance',   etf: false },
+            { id: '2887',   name: '台新金',   cat: 'finance',   etf: false },
+            // ── 電子/科技個股 10 檔（基礎分 2.5）──
+            { id: '2303',   name: '聯電',     cat: 'tech',      etf: false },
+            { id: '3008',   name: '大立光',   cat: 'tech',      etf: false },
+            { id: '2379',   name: '瑞昱',     cat: 'tech',      etf: false },
+            { id: '2327',   name: '國巨',     cat: 'tech',      etf: false },
+            { id: '2376',   name: '技嘉',     cat: 'tech',      etf: false },
+            { id: '2377',   name: '微星',     cat: 'tech',      etf: false },
+            { id: '3034',   name: '聯詠',     cat: 'tech',      etf: false },
+            { id: '6415',   name: '矽力-KY',  cat: 'tech',      etf: false },
+            { id: '6669',   name: '緯穎',     cat: 'tech',      etf: false },
+            { id: '5274',   name: '信驊',     cat: 'tech',      etf: false },
+        ];
+
+        // 複合評分演算法
+        function calcLongtermScore(item, ind) {
+            const strategy = STRATEGY_DESC[item.cat] || STRATEGY_DESC['general'];
+            const baseScore = strategy.holdScore || 2.5;
+
+            // 槓桿型直接排除
+            if (item.cat === 'leveraged') return null;
+
+            // 無資料：只用基礎分
+            if (!ind || !ind.latest) return { total: baseScore * 1.5, base: baseScore, tech: 0, risk: 0 };
+
+            const { latest, prev } = ind;
+            const h = latest.hist, ph = prev ? prev.hist : null;
+            const rsi = latest.rsi;
+            let tech = 0, risk = 0;
+
+            // 技術加分
+            if (h !== null && h > 0)                       tech += 2;  // MACD 多頭
+            if (rsi !== null && rsi > 45 && rsi < 70)      tech += 2;  // RSI 健康
+            if (latest.upper !== null && latest.close > latest.lower && latest.close > (latest.upper + latest.lower) / 2) tech += 2; // 股價站20MA以上（用布林中軌近似）
+            if (ph !== null && h !== null && ph <= 0 && h > 0) tech += 2; // MACD 金叉
+            if (latest.lower !== null && latest.close >= latest.lower) tech += 1; // 未破下軌
+            if (rsi !== null && rsi <= 35 && ['dividend','finance','market'].includes(item.cat)) tech += 0.5; // 存股型超賣低接機會
+
+            // 風險扣分
+            if (ph !== null && h !== null && ph >= 0 && h < 0) risk += 3;   // MACD 死叉
+            if (rsi !== null && rsi >= 72)                     risk += 1;   // RSI 超買
+            if (latest.lower !== null && latest.close < latest.lower &&
+                !['dividend','finance','market'].includes(item.cat)) risk += 1.5; // 非存股型破下軌
+
+            const total = Math.max(0, baseScore * 1.5 + tech - risk);
+            return { total: Math.round(total * 10) / 10, base: baseScore, tech, risk };
+        }
+
+        // 評級標籤
+        function getLongtermGrade(score) {
+            if (score >= 10) return { label: '🟢 現在佈局', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', dot: 'bg-emerald-500' };
+            if (score >= 7)  return { label: '🔵 等待切入', color: 'bg-blue-100 text-blue-800 border-blue-300',     dot: 'bg-blue-500'    };
+            if (score >= 5)  return { label: '🟡 長線觀察', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500'  };
+            return               { label: '⚪ 暫不考慮', color: 'bg-slate-100 text-slate-600 border-slate-300',   dot: 'bg-slate-400'   };
+        }
+
+        async function startLongtermScan() {
+            const btn = document.getElementById('longtermBtn');
+            const statusArea = document.getElementById('longtermStatusArea');
+            const log = document.getElementById('longtermLog');
+            const pBar = document.getElementById('longtermProgressBar');
+            const pText = document.getElementById('longtermPercent');
+            const resultsArea = document.getElementById('longtermResults');
+
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner"></div> 篩選中...';
+            btn.classList.add('opacity-50');
+            statusArea.classList.remove('hidden');
+            resultsArea.classList.add('hidden');
+
+            const total = LONGTERM_UNIVERSE.length;
+            const scored = [];
+
+            for (let i = 0; i < total; i++) {
+                const item = LONGTERM_UNIVERSE[i];
+                const pct = Math.round(((i + 1) / total) * 100);
+                pBar.style.width = pct + '%';
+                pText.textContent = pct + '%';
+                log.textContent = `[${i+1}/${total}] 分析：${item.name}（${item.id}）`;
+
+                try {
+                    let closes = null;
+                    const official = await fetchStockData(item.id, true);
+                    if (official) {
+                        closes = official.closes;
+                    } else {
+                        for (const sfx of ['.TW', '.TWO']) {
+                            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${item.id}${sfx}?range=6mo&interval=1d`;
+                            const raw = await fetchWithFallback(url, true);
+                            if (raw && raw.chart && raw.chart.result) {
+                                const rc = raw.chart.result[0].indicators.quote[0].close;
+                                closes = []; let lv = 0;
+                                for (const c of rc) { if (c !== null) lv = c; closes.push(c !== null ? c : lv); }
+                                break;
+                            }
+                        }
+                    }
+
+                    let ind = null;
+                    if (closes && closes.length >= 20) ind = calcIndicators(closes);
+                    const scoreResult = calcLongtermScore(item, ind);
+                    if (scoreResult !== null) {
+                        scored.push({ item, ind, score: scoreResult });
+                    }
+                } catch(e) {
+                    scored.push({ item, ind: null, score: calcLongtermScore(item, null) });
+                }
+
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            // 排序：總分由高到低，同分時基礎分高者優先
+            scored.sort((a, b) => b.score.total - a.score.total || b.score.base - a.score.base);
+
+            pBar.style.width = '100%';
+            pText.textContent = '100%';
+            log.textContent = '篩選完成，整理排行榜...';
+            await new Promise(r => setTimeout(r, 300));
+            statusArea.classList.add('hidden');
+
+            // ── 統計摘要 ──
+            const grades = { buy: 0, wait: 0, watch: 0, skip: 0 };
+            scored.forEach(s => {
+                const g = s.score.total;
+                if (g >= 10) grades.buy++; else if (g >= 7) grades.wait++; else if (g >= 5) grades.watch++; else grades.skip++;
+            });
+            document.getElementById('longtermSummary').innerHTML = `
+                <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-black text-emerald-600">${grades.buy}</div>
+                    <div class="text-xs font-bold text-emerald-700 mt-1">🟢 現在佈局</div>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-black text-blue-600">${grades.wait}</div>
+                    <div class="text-xs font-bold text-blue-700 mt-1">🔵 等待切入</div>
+                </div>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-black text-yellow-600">${grades.watch}</div>
+                    <div class="text-xs font-bold text-yellow-700 mt-1">🟡 長線觀察</div>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-black text-slate-500">${grades.skip}</div>
+                    <div class="text-xs font-bold text-slate-600 mt-1">⚪ 暫不考慮</div>
+                </div>
+            `;
+            document.getElementById('longtermCount').textContent = `共 ${scored.length} 檔`;
+
+            // ── 排行榜 ──
+            const list = document.getElementById('longtermList');
+            list.innerHTML = '';
+
+            scored.forEach((entry, rank) => {
+                const { item, ind, score } = entry;
+                const grade = getLongtermGrade(score.total);
+                const close = ind ? `$${ind.latest.close.toFixed(2)}` : '---';
+                const customTag = ASSET_TAGS[item.id];
+                const tagHtml = customTag
+                    ? `<span class="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 font-bold">${customTag.badge}</span>`
+                    : `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">${(STRATEGY_DESC[item.cat] || STRATEGY_DESC['general']).name}</span>`;
+
+                // RSI 及技術摘要
+                const rsi = ind ? ind.latest.rsi : null;
+                const rsiStr = rsi !== null ? rsi.toFixed(0) : '--';
+                const rsiColor = rsi !== null ? (rsi >= 70 ? 'text-red-500' : rsi <= 35 ? 'text-green-600' : 'text-slate-500') : 'text-slate-400';
+                const macdStr = ind && ind.latest.hist !== null
+                    ? (ind.latest.hist > 0 ? '<span class="text-red-500">紅柱</span>' : '<span class="text-green-600">綠柱</span>')
+                    : '<span class="text-slate-400">--</span>';
+                const bbStr = ind && ind.latest.upper !== null
+                    ? (ind.latest.close > ind.latest.upper ? '<span class="text-red-500">上軌</span>' :
+                       ind.latest.close < ind.latest.lower ? '<span class="text-green-600">下軌</span>' : '區間')
+                    : '<span class="text-slate-400">--</span>';
+
+                // 持有信心指數（動態）
+                const strategy = STRATEGY_DESC[item.cat] || STRATEGY_DESC['general'];
+                const holdInfo = ind
+                    ? calcHoldScore(strategy.holdScore || 2.5, item.cat, ind.latest, ind.prev, rsi)
+                    : { score: strategy.holdScore || 2.5, stars: '★'.repeat(Math.round(strategy.holdScore||2.5)) + '☆'.repeat(5-Math.round(strategy.holdScore||2.5)), label:'---', color:'text-slate-400', barColor:'bg-slate-300', barWidth:(strategy.holdScore||2.5)/5*100 };
+
+                // 分數條顏色
+                const scoreBarWidth = Math.min(100, Math.round(score.total / 15 * 100));
+                const scoreBarColor = score.total >= 10 ? 'bg-emerald-500' : score.total >= 7 ? 'bg-blue-500' : score.total >= 5 ? 'bg-yellow-500' : 'bg-slate-300';
+
+                // 前3名特殊樣式
+                const rankBg = rank === 0 ? 'bg-yellow-400 text-yellow-900' : rank === 1 ? 'bg-slate-300 text-slate-700' : rank === 2 ? 'bg-orange-300 text-orange-900' : 'bg-slate-100 text-slate-600';
+                const rankIcon = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `${rank+1}`;
+                const rowBg = rank < 3 ? 'bg-gradient-to-r from-amber-50/40 to-transparent' : 'hover:bg-slate-50';
+
+                const row = document.createElement('div');
+                row.className = `grid grid-cols-12 gap-2 px-4 py-3 ${rowBg} transition cursor-pointer group border-b border-slate-50 last:border-0 items-center`;
+                row.onclick = () => openDetailModal(item.id, item.name, item.cat);
+                row.title = `點擊查看 ${item.name} 完整技術分析`;
+                row.innerHTML = `
+                    <!-- 排名 -->
+                    <div class="col-span-1 flex justify-center">
+                        <span class="w-7 h-7 rounded-full ${rankBg} font-black text-xs flex items-center justify-center">${rankIcon}</span>
+                    </div>
+                    <!-- 名稱 / 代碼 -->
+                    <div class="col-span-3 min-w-0">
+                        <div class="font-bold text-sm text-slate-800 group-hover:text-emerald-700 truncate">${item.name}</div>
+                        <div class="text-xs text-slate-400 font-mono">${item.id} ${item.etf ? '<span class="text-indigo-400">ETF</span>' : '<span class="text-orange-400">個股</span>'}</div>
+                    </div>
+                    <!-- 屬性 -->
+                    <div class="col-span-2 flex flex-col gap-1">
+                        ${tagHtml}
+                    </div>
+                    <!-- 技術面 -->
+                    <div class="col-span-3 text-xs text-slate-500 space-y-0.5">
+                        <div class="flex gap-2">布林：${bbStr}　MACD：${macdStr}</div>
+                        <div>RSI：<span class="${rsiColor} font-bold">${rsiStr}</span></div>
+                        <div class="flex items-center gap-1 mt-1">
+                            <div class="flex-1 bg-slate-100 rounded-full h-1 max-w-16">
+                                <div class="h-1 rounded-full ${scoreBarColor}" style="width:${scoreBarWidth}%"></div>
+                            </div>
+                            <span class="font-bold text-slate-700">${score.total}</span>
+                            <span class="text-slate-400 text-xs">分</span>
+                        </div>
+                    </div>
+                    <!-- 持有信心 -->
+                    <div class="col-span-2 text-center">
+                        <span class="text-xs ${holdInfo.color} font-bold">${holdInfo.stars} ${holdInfo.score.toFixed(1)}</span>
+                        <div class="w-full bg-slate-100 rounded-full h-1 mt-1 mx-auto max-w-16">
+                            <div class="h-1 rounded-full ${holdInfo.barColor}" style="width:${holdInfo.barWidth}%"></div>
+                        </div>
+                        <span class="inline-block mt-1 text-xs px-1.5 py-0.5 rounded border font-bold ${grade.color}">${grade.label}</span>
+                    </div>
+                    <!-- 收盤 -->
+                    <div class="col-span-1 text-right font-bold text-sm text-slate-800">${close}</div>
+                `;
+                list.appendChild(row);
+            });
+
+            resultsArea.classList.remove('hidden');
+
+            // 渲染候補觀察名單
+            renderWatchlistCandidates();
+
+            btn.disabled = false;
+            btn.innerHTML = '🔄 重新篩選';
+            btn.classList.remove('opacity-50');
+        }
+
+    </script>
+</body>
+</html>
